@@ -1,16 +1,14 @@
 
 ## Environments
-    funasr 0.1.7
-    python 3.7
-    torch 1.11.0
-    modelscope 1.2.0
+    torch >= 1.11.0
+    modelscope >= 1.2.0
 
 ## Install modelscope and funasr
 
 The installation is the same as [funasr](../../README.md)
 
 ## Export model
-   `Tips`: torch 1.11.0 is required.
+   `Tips`: torch>=1.11.0
 
    ```shell
    python -m funasr.export.export_model [model_name] [export_dir] [onnx]
