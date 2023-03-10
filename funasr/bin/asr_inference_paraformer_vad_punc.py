@@ -302,8 +302,15 @@ class Speech2Text:
                     text = None
 
                 if isinstance(self.asr_model, BiCifParaformer):
-                    timestamp = time_stamp_lfr6_pl(us_alphas[i], us_cif_peak[i], copy.copy(token), begin_time, end_time)
-                    results.append((text, token, token_int, timestamp, enc_len_batch_total, lfr_factor))
+                    try:
+                        timestamp = time_stamp_lfr6_pl(us_alphas[i], us_cif_peak[i], copy.copy(token), begin_time, end_time)
+                    except:
+                        timestamp = None
+
+                    if timestamp is not None:
+                        results.append((text, token, token_int, timestamp, enc_len_batch_total, lfr_factor))
+                    else:
+                        results.append((text, token, token_int, enc_len_batch_total, lfr_factor))
                 else:
                     results.append((text, token, token_int, enc_len_batch_total, lfr_factor))
 
