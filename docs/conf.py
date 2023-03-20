@@ -40,7 +40,7 @@ extensions = [
     'sphinx_rtd_theme',
 ]
 
-# Add any paths that contain templates here, relative to this directory.
+# Add any paths that contain static here, relative to this directory.
 templates_path = ['_templates']
 
 source_suffix = [".rst", ".md"]
