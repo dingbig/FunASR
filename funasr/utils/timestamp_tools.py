@@ -59,23 +59,31 @@ def time_stamp_lfr6_pl(us_alphas, us_cif_peak, char_list, begin_time=0.0, end_ti
 def time_stamp_sentence(punc_id_list, time_stamp_postprocessed, text_postprocessed):
     res = []
     if text_postprocessed is None:
+        print("text_postprocessed is None")
         return res
     if time_stamp_postprocessed is None:
+        print("time_stamp_postprocessed is None")
         return res
     if len(time_stamp_postprocessed) == 0:
+        print("len(time_stamp_postprocessed) == 0")
         return res
     if len(text_postprocessed) == 0:
+        print("len(text_postprocessed) == 0")
         return res
+    text_postprocessed_str_or_list = text_postprocessed.split()
+    text_postprocessed_strict = text_postprocessed_str_or_list if isinstance(text_postprocessed_str_or_list, str) else ''.join(text_postprocessed_str_or_list)
     if punc_id_list is None or len(punc_id_list) == 0:
+        print("punc_id_list is None or len(punc_id_list) == 0")
         res.append({
-            'text': text_postprocessed.split(),
+            'text': text_postprocessed_strict,
             "start": time_stamp_postprocessed[0][0],
             "end": time_stamp_postprocessed[-1][1]
         })
         return res
     if len(punc_id_list) != len(time_stamp_postprocessed):
+        print("len(punc_id_list) != len(time_stamp_postprocessed), len(punc_id_list) = {}, len(time_stamp_postprocessed) = {}".format(len(punc_id_list), len(time_stamp_postprocessed)))
         res.append({
-            'text': text_postprocessed.split(),
+            'text': text_postprocessed_strict,
             "start": time_stamp_postprocessed[0][0],
             "end": time_stamp_postprocessed[-1][1]
         })
@@ -83,8 +91,10 @@ def time_stamp_sentence(punc_id_list, time_stamp_postprocessed, text_postprocess
 
     sentence_text = ''
     sentence_start = time_stamp_postprocessed[0][0]
-    texts = text_postprocessed.split()
+    texts = text_postprocessed_strict
+    print("punc_id_list", punc_id_list)
     for i in range(len(punc_id_list)):
+
         sentence_text += texts[i]
         if punc_id_list[i] == 2:
             sentence_text += ','
