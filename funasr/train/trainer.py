@@ -39,11 +39,12 @@ from funasr.torch_utils.add_gradient_noise import add_gradient_noise
 from funasr.torch_utils.device_funcs import to_device
 from funasr.torch_utils.recursive_op import recursive_average
 from funasr.torch_utils.set_all_random_seed import set_all_random_seed
-from funasr.train.abs_espnet_model import AbsESPnetModel
+from funasr.models.base_model import FunASRModel
 from funasr.train.distributed_utils import DistributedOption
 from funasr.train.reporter import Reporter
 from funasr.train.reporter import SubReporter
 from funasr.utils.build_dataclass import build_dataclass
+from funasr.utils.kwargs2args import kwargs2args
 
 if torch.distributed.is_available():
     from torch.distributed import ReduceOp
@@ -94,7 +95,8 @@ class TrainerOptions:
     wandb_model_log_interval: int
     use_pai: bool
     oss_bucket: Union[oss2.Bucket, None]
-
+    batch_interval: int
+    bias_grad_times: float
 
 class Trainer:
     """Trainer having a optimizer.
@@ -142,11 +144,23 @@ class Trainer:
         schedulers: Sequence[Optional[AbsScheduler]],
         scaler: Optional[GradScaler],
         ngpu: int = 0,
+        oss_bucket=None,
     ):
-        states = torch.load(
-            checkpoint,
-            map_location=f"cuda:{torch.cuda.current_device()}" if ngpu > 0 else "cpu",
-        )
+        if oss_bucket is None:
+            if os.path.exists(checkpoint):
+                states = torch.load(
+                    checkpoint,
+                    map_location=f"cuda:{torch.cuda.current_device()}" if ngpu > 0 else "cpu",
+                )
+            
+            else:
+                return 0
+        else:
+            if oss_bucket.object_exists(checkpoint):
+                buffer = BytesIO(oss_bucket.get_object(checkpoint).read())
+                states = torch.load(buffer, map_location=f"cuda:{torch.cuda.current_device()}" if ngpu > 0 else "cpu",)
+            else:
+                return 0
         model.load_state_dict(states["model"])
         reporter.load_state_dict(states["reporter"])
         for optimizer, state in zip(optimizers, states["optimizers"]):
@@ -165,7 +179,7 @@ class Trainer:
     @classmethod
     def run(
         cls,
-        model: AbsESPnetModel,
+        model: FunASRModel,
         optimizers: Sequence[torch.optim.Optimizer],
         schedulers: Sequence[Optional[AbsScheduler]],
         train_iter_factory: AbsIterFactory,
@@ -186,7 +200,7 @@ class Trainer:
                 logging.warning("No keep_nbest_models is given. Change to [1]")
                 trainer_options.keep_nbest_models = [1]
             keep_nbest_models = trainer_options.keep_nbest_models
-
+ 
         output_dir = Path(trainer_options.output_dir)
         reporter = Reporter()
         if trainer_options.use_amp:
@@ -205,15 +219,16 @@ class Trainer:
         else:
             scaler = None
 
-        if trainer_options.resume and (output_dir / "checkpoint.pb").exists():
+        if trainer_options.resume:
             cls.resume(
-                checkpoint=output_dir / "checkpoint.pb",
+                checkpoint=os.path.join(trainer_options.output_dir, "checkpoint.pb") if trainer_options.use_pai else output_dir / "checkpoint.pb",
                 model=model,
                 optimizers=optimizers,
                 schedulers=schedulers,
                 reporter=reporter,
                 scaler=scaler,
                 ngpu=trainer_options.ngpu,
+                oss_bucket=trainer_options.oss_bucket if trainer_options.use_pai else None,
             )
 
         start_epoch = reporter.get_epoch() + 1
@@ -546,8 +561,11 @@ class Trainer:
         no_forward_run = options.no_forward_run
         ngpu = options.ngpu
         use_wandb = options.use_wandb
+        bias_grad_times = options.bias_grad_times
         distributed = distributed_option.distributed
 
+        if bias_grad_times != 1.0:
+            logging.warning("Using bias_grad_times: {} for gradient scaling".format(bias_grad_times))
         if log_interval is None:
             try:
                 log_interval = max(len(iterator) // 20, 10)
@@ -560,12 +578,38 @@ class Trainer:
         # [For distributed] Because iteration counts are not always equals between
         # processes, send stop-flag to the other processes if iterator is finished
         iterator_stop = torch.tensor(0).to("cuda" if ngpu > 0 else "cpu")
-
+        
+        #get the rank
+        rank = distributed_option.dist_rank
+        #get the num batch updates
+        num_batch_updates = 0
+        #ouput dir
+        output_dir = Path(options.output_dir)
+        #batch interval
+        batch_interval = options.batch_interval
+ 
         start_time = time.perf_counter()
         for iiter, (_, batch) in enumerate(
             reporter.measure_iter_time(iterator, "iter_time"), 1
         ):
             assert isinstance(batch, dict), type(batch)
+
+            if batch_interval > 0 and (not distributed_option.distributed or rank == 0):
+                if hasattr(model, "num_updates") or (hasattr(model, "module") and hasattr(model.module, "num_updates")):
+                    num_batch_updates = model.get_num_updates() if hasattr(model,"num_updates") else model.module.get_num_updates()
+                if num_batch_updates % batch_interval == 0:
+                    if options.use_pai and options.oss_bucket is not None:
+                        buffer = BytesIO()
+                        if hasattr(model, "module"):
+                            torch.save(model.module.state_dict(), buffer)
+                        else:
+                            torch.save(model.state_dict(), buffer)
+                        options.oss_bucket.put_object(os.path.join(output_dir, f"{num_batch_updates}step.pb"), buffer.getvalue())
+                    else:
+                        if hasattr(model, "module"):
+                            torch.save(model.module.state_dict(), os.path.join(output_dir, f"{num_batch_updates}step.pb"))
+                        else:
+                            torch.save(model.state_dict(), os.path.join(output_dir, f"{num_batch_updates}step.pb"))
 
             if distributed:
                 torch.distributed.all_reduce(iterator_stop, ReduceOp.SUM)
@@ -576,6 +620,24 @@ class Trainer:
             if no_forward_run:
                 all_steps_are_invalid = False
                 continue
+
+            if iiter == 1 and summary_writer is not None:
+                try:
+                    args = kwargs2args(model.forward, batch)
+                except (ValueError, TypeError):
+                    logging.warning(
+                        "inpect.signature() is failed for the model. "
+                        "The graph can't be added for tensorboard."
+                    )
+                else:
+                    try:
+                        summary_writer.add_graph(model, args, use_strict_trace=False)
+                    except Exception:
+                        logging.warning(
+                            "summary_writer.add_graph() is failed for the model. "
+                            "The graph can't be added for tensorboard."
+                        )
+                    del args
 
             with autocast(scaler is not None):
                 with reporter.measure_time("forward_time"):
@@ -663,6 +725,16 @@ class Trainer:
                         eta=1.0,
                         scale_factor=0.55,
                     )
+
+                # for contextual training
+                if bias_grad_times != 1.0:
+                    # contextual related parameter names
+                    cr_pnames = ["bias_encoder", "bias_embed", "decoder.bias_decoder", "decoder.bias_output"]
+                    for name, param in model.named_parameters():
+                        for cr_pname in cr_pnames:
+                            if cr_pname in name:
+                                param.grad *= bias_grad_times
+                                continue
 
                 # compute the gradient norm to check if it is normal or not
                 grad_norm = torch.nn.utils.clip_grad_norm_(

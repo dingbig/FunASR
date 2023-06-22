@@ -1,10 +1,16 @@
 import logging
+from pathlib import Path
+from typing import Iterable
+from typing import List
+from typing import Union
 
-import yaml
-
+import sentencepiece as spm
 from torch.utils.data import DataLoader
+from typeguard import check_argument_types
+
 from funasr.datasets.large_datasets.dataset import Dataset
 from funasr.iterators.abs_iter_factory import AbsIterFactory
+from funasr.text.abs_tokenizer import AbsTokenizer
 
 
 def read_symbol_table(symbol_table_file):
@@ -21,6 +27,7 @@ def read_symbol_table(symbol_table_file):
             symbol_table[char] = i
     return symbol_table
 
+
 def load_seg_dict(seg_dict_file):
     seg_dict = {}
     assert isinstance(seg_dict_file, str)
@@ -33,23 +40,51 @@ def load_seg_dict(seg_dict_file):
             seg_dict[key] = " ".join(value)
     return seg_dict
 
-class ArkDataLoader(AbsIterFactory):
-    def __init__(self, data_list, dict_file, dataset_conf, frontend_conf=None, seg_dict_file=None, punc_dict_file=None, mode="train"):
-        symbol_table = read_symbol_table(dict_file) if dict_file is not None else None
-        if seg_dict_file is not None:
-            seg_dict = load_seg_dict(seg_dict_file)
-        else:
-            seg_dict = None
-        if punc_dict_file is not None:
-            punc_dict = read_symbol_table(punc_dict_file)
-        else:
-            punc_dict = None
-        self.dataset_conf = dataset_conf
-        self.frontend_conf = frontend_conf
+
+class SentencepiecesTokenizer(AbsTokenizer):
+    def __init__(self, model: Union[Path, str]):
+        assert check_argument_types()
+        self.model = str(model)
+        self.sp = None
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(model="{self.model}")'
+
+    def _build_sentence_piece_processor(self):
+        if self.sp is None:
+            self.sp = spm.SentencePieceProcessor()
+            self.sp.load(self.model)
+
+    def text2tokens(self, line: str) -> List[str]:
+        self._build_sentence_piece_processor()
+        return self.sp.EncodeAsPieces(line)
+
+    def tokens2text(self, tokens: Iterable[str]) -> str:
+        self._build_sentence_piece_processor()
+        return self.sp.DecodePieces(list(tokens))
+
+
+class LargeDataLoader(AbsIterFactory):
+    def __init__(self, args, mode="train"):
+        symbol_table, seg_dict, punc_dict, bpe_tokenizer = None, None, None, None
+        if hasattr(args, "token_list") and args.token_list is not None:
+            symbol_table = read_symbol_table(args.token_list)
+        if hasattr(args, "seg_dict_file") and args.seg_dict_file is not None:
+            seg_dict = load_seg_dict(args.seg_dict_file)
+        if hasattr(args, "punc_dict_file") and args.punc_dict_file is not None:
+            punc_dict = read_symbol_table(args.punc_dict_file)
+        if hasattr(args, "bpemodel") and args.bpemodel is not None:
+            bpe_tokenizer = SentencepiecesTokenizer(args.bpemodel)
+        self.dataset_conf = args.dataset_conf
+        self.frontend_conf = args.frontend_conf
+        self.speed_perturb = args.speed_perturb if hasattr(args, "speed_perturb") else None 
         logging.info("dataloader config: {}".format(self.dataset_conf))
         batch_mode = self.dataset_conf.get("batch_mode", "padding")
-        self.dataset = Dataset(data_list, symbol_table, seg_dict, punc_dict,
-                               self.dataset_conf, self.frontend_conf, mode=mode, batch_mode=batch_mode)
+        data_list = args.train_data_file if mode == "train" else args.valid_data_file
+        self.dataset = Dataset(data_list, symbol_table, seg_dict, punc_dict, bpe_tokenizer,
+                               self.dataset_conf, self.frontend_conf,
+                               speed_perturb=self.speed_perturb if mode == "train" else None,
+                               mode=mode, batch_mode=batch_mode)
 
     def build_iter(self, epoch, shuffle=True):
         self.dataset.set_epoch(epoch)

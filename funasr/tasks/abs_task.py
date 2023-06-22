@@ -30,6 +30,7 @@ import torch.multiprocessing
 import torch.nn
 import torch.optim
 import yaml
+from funasr.models.base_model import FunASRModel
 from torch.utils.data import DataLoader
 from typeguard import check_argument_types
 from typeguard import check_return_type
@@ -44,19 +45,18 @@ from funasr.iterators.chunk_iter_factory import ChunkIterFactory
 from funasr.iterators.multiple_iter_factory import MultipleIterFactory
 from funasr.iterators.sequence_iter_factory import SequenceIterFactory
 from funasr.main_funcs.collect_stats import collect_stats
-from funasr.optimizers.sgd import SGD
 from funasr.optimizers.fairseq_adam import FairseqAdam
+from funasr.optimizers.sgd import SGD
 from funasr.samplers.build_batch_sampler import BATCH_TYPES
 from funasr.samplers.build_batch_sampler import build_batch_sampler
 from funasr.samplers.unsorted_batch_sampler import UnsortedBatchSampler
 from funasr.schedulers.noam_lr import NoamLR
-from funasr.schedulers.warmup_lr import WarmupLR
 from funasr.schedulers.tri_stage_scheduler import TriStageLR
+from funasr.schedulers.warmup_lr import WarmupLR
 from funasr.torch_utils.load_pretrained_model import load_pretrained_model
 from funasr.torch_utils.model_summary import model_summary
 from funasr.torch_utils.pytorch_version import pytorch_cudnn_version
 from funasr.torch_utils.set_all_random_seed import set_all_random_seed
-from funasr.train.abs_espnet_model import AbsESPnetModel
 from funasr.train.class_choices import ClassChoices
 from funasr.train.distributed_utils import DistributedOption
 from funasr.train.trainer import Trainer
@@ -230,8 +230,8 @@ class AbsTask(ABC):
         >>> cls.check_task_requirements()
         If your model is defined as following,
 
-        >>> from funasr.train.abs_espnet_model import AbsESPnetModel
-        >>> class Model(AbsESPnetModel):
+        >>> from funasr.models.base_model import FunASRModel
+        >>> class Model(FunASRModel):
         ...     def forward(self, input, output, opt=None):  pass
 
         then "required_data_names" should be as
@@ -251,8 +251,8 @@ class AbsTask(ABC):
         >>> cls.check_task_requirements()
         If your model is defined as follows,
 
-        >>> from funasr.train.abs_espnet_model import AbsESPnetModel
-        >>> class Model(AbsESPnetModel):
+        >>> from funasr.models.base_model import FunASRModel
+        >>> class Model(FunASRModel):
         ...     def forward(self, input, output, opt=None):  pass
 
         then "optional_data_names" should be as
@@ -263,8 +263,9 @@ class AbsTask(ABC):
 
     @classmethod
     @abstractmethod
-    def build_model(cls, args: argparse.Namespace) -> AbsESPnetModel:
+    def build_model(cls, args: argparse.Namespace) -> FunASRModel:
         raise NotImplementedError
+
 
     @classmethod
     def get_parser(cls) -> config_argparse.ArgumentParser:
@@ -445,6 +446,12 @@ class AbsTask(ABC):
             help='Perform on "collect stats" mode',
         )
         group.add_argument(
+            "--mc",
+            type=bool,
+            default=False,
+            help="MultiChannel input",
+        )
+        group.add_argument(
             "--write_collected_feats",
             type=str2bool,
             default=False,
@@ -463,6 +470,12 @@ class AbsTask(ABC):
             type=int,
             default=sys.maxsize,
             help="The maximum number update step to train",
+        )
+        parser.add_argument(
+            "--batch_interval",
+            type=int,
+            default=-1,
+            help="The batch interval for saving model.",
         )
         group.add_argument(
             "--patience",
@@ -541,6 +554,12 @@ class AbsTask(ABC):
             type=int,
             default=1,
             help="The number of gradient accumulation",
+        )
+        group.add_argument(
+            "--bias_grad_times",
+            type=float,
+            default=1.0,
+            help="To scale the gradient of contextual related params",
         )
         group.add_argument(
             "--no_forward_run",
@@ -629,8 +648,8 @@ class AbsTask(ABC):
         group.add_argument(
             "--init_param",
             type=str,
+            action="append",
             default=[],
-            nargs="*",
             help="Specify the file path used for initialization of parameters. "
                  "The format is '<file_path>:<src_key>:<dst_key>:<exclude_keys>', "
                  "where file_path is the model file path, "
@@ -656,7 +675,7 @@ class AbsTask(ABC):
             "--freeze_param",
             type=str,
             default=[],
-            nargs="*",
+            action="append",
             help="Freeze parameters",
         )
 
@@ -1147,14 +1166,15 @@ class AbsTask(ABC):
         elif args.distributed and args.simple_ddp:
             distributed_option.init_torch_distributed_pai(args)
             args.ngpu = dist.get_world_size()
-            if args.dataset_type == "small":
+            if args.dataset_type == "small" and args.ngpu > 0:
                 if args.batch_size is not None:
                     args.batch_size = args.batch_size * args.ngpu
-                if args.batch_bins is not None:
+                if args.batch_bins is not None and args.ngpu > 0:
                     args.batch_bins = args.batch_bins * args.ngpu
 
         # filter samples if wav.scp and text are mismatch
-        if (args.train_shape_file is None and args.dataset_type == "small") or args.train_data_file is None and args.dataset_type == "large":
+        if (
+                args.train_shape_file is None and args.dataset_type == "small") or args.train_data_file is None and args.dataset_type == "large":
             if not args.simple_ddp or distributed_option.dist_rank == 0:
                 filter_wav_text(args.data_dir, args.train_set)
                 filter_wav_text(args.data_dir, args.dev_set)
@@ -1163,8 +1183,10 @@ class AbsTask(ABC):
 
         if args.train_shape_file is None and args.dataset_type == "small":
             if not args.simple_ddp or distributed_option.dist_rank == 0:
-                calc_shape(args.data_dir, args.train_set, args.frontend_conf, args.speech_length_min, args.speech_length_max)
-                calc_shape(args.data_dir, args.dev_set, args.frontend_conf, args.speech_length_min, args.speech_length_max)
+                calc_shape(args.data_dir, args.train_set, args.frontend_conf, args.speech_length_min,
+                           args.speech_length_max)
+                calc_shape(args.data_dir, args.dev_set, args.frontend_conf, args.speech_length_min,
+                           args.speech_length_max)
             if args.simple_ddp:
                 dist.barrier()
             args.train_shape_file = [os.path.join(args.data_dir, args.train_set, "speech_shape")]
@@ -1193,12 +1215,18 @@ class AbsTask(ABC):
             # logging.basicConfig() is invoked in main_worker() instead of main()
             # because it can be invoked only once in a process.
             # FIXME(kamo): Should we use logging.getLogger()?
+            # BUGFIX: Remove previous handlers and reset log level
+            for handler in logging.root.handlers[:]:
+                logging.root.removeHandler(handler)
             logging.basicConfig(
                 level=args.log_level,
                 format=f"[{os.uname()[1].split('.')[0]}]"
                        f" %(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s",
             )
         else:
+            # BUGFIX: Remove previous handlers and reset log level
+            for handler in logging.root.handlers[:]:
+                logging.root.removeHandler(handler)
             # Suppress logging if RANK != 0
             logging.basicConfig(
                 level="ERROR",
@@ -1220,9 +1248,9 @@ class AbsTask(ABC):
 
         # 2. Build model
         model = cls.build_model(args=args)
-        if not isinstance(model, AbsESPnetModel):
+        if not isinstance(model, FunASRModel):
             raise RuntimeError(
-                f"model must inherit {AbsESPnetModel.__name__}, but got {type(model)}"
+                f"model must inherit {FunASRModel.__name__}, but got {type(model)}"
             )
         model = model.to(
             dtype=getattr(torch, args.train_dtype),
@@ -1304,6 +1332,7 @@ class AbsTask(ABC):
                     data_path_and_name_and_type=args.train_data_path_and_name_and_type,
                     key_file=train_key_file,
                     batch_size=args.batch_size,
+                    mc=args.mc,
                     dtype=args.train_dtype,
                     num_workers=args.num_workers,
                     allow_variable_data_keys=args.allow_variable_data_keys,
@@ -1315,6 +1344,7 @@ class AbsTask(ABC):
                     data_path_and_name_and_type=args.valid_data_path_and_name_and_type,
                     key_file=valid_key_file,
                     batch_size=args.valid_batch_size,
+                    mc=args.mc,
                     dtype=args.train_dtype,
                     num_workers=args.num_workers,
                     allow_variable_data_keys=args.allow_variable_data_keys,
@@ -1346,19 +1376,10 @@ class AbsTask(ABC):
 
             # 7. Build iterator factories
             if args.dataset_type == "large":
-                from funasr.datasets.large_datasets.build_dataloader import ArkDataLoader
-                train_iter_factory = ArkDataLoader(args.train_data_file, args.token_list, args.dataset_conf,
-                                                   frontend_conf=args.frontend_conf if hasattr(args, "frontend_conf") else None,
-                                                   seg_dict_file=args.seg_dict_file if hasattr(args,
-                                                                                               "seg_dict_file") else None,
-                                                   punc_dict_file=args.punc_list if hasattr(args, "punc_list") else None,
-                                                   mode="train")
-                valid_iter_factory = ArkDataLoader(args.valid_data_file, args.token_list, args.dataset_conf, 
-                                                   frontend_conf=args.frontend_conf if hasattr(args, "frontend_conf") else None,
-                                                   seg_dict_file=args.seg_dict_file if hasattr(args,
-                                                                                               "seg_dict_file") else None,
-                                                   punc_dict_file=args.punc_list if hasattr(args, "punc_list") else None,
-                                                   mode="eval")
+                from funasr.datasets.large_datasets.build_dataloader import LargeDataLoader
+                train_iter_factory = LargeDataLoader(args, mode="train")
+                valid_iter_factory = LargeDataLoader(args, mode="eval")
+
             elif args.dataset_type == "small":
                 train_iter_factory = cls.build_iter_factory(
                     args=args,
@@ -1570,13 +1591,21 @@ class AbsTask(ABC):
     ) -> AbsIterFactory:
         assert check_argument_types()
 
+        if hasattr(args, "frontend_conf"):
+            if args.frontend_conf is not None and "fs" in args.frontend_conf:
+                dest_sample_rate = args.frontend_conf["fs"]
+            else:
+                dest_sample_rate = 16000
+        else:
+            dest_sample_rate = 16000
+
         dataset = ESPnetDataset(
             iter_options.data_path_and_name_and_type,
             float_dtype=args.train_dtype,
             preprocess=iter_options.preprocess_fn,
             max_cache_size=iter_options.max_cache_size,
             max_cache_fd=iter_options.max_cache_fd,
-            dest_sample_rate=args.frontend_conf["fs"],
+            dest_sample_rate=dest_sample_rate,
         )
         cls.check_task_requirements(
             dataset, args.allow_variable_data_keys, train=iter_options.train
@@ -1895,7 +1924,7 @@ class AbsTask(ABC):
             model_file: Union[Path, str] = None,
             cmvn_file: Union[Path, str] = None,
             device: str = "cpu",
-    ) -> Tuple[AbsESPnetModel, argparse.Namespace]:
+    ) -> Tuple[FunASRModel, argparse.Namespace]:
         """Build model from the files.
 
         This method is used for inference or fine-tuning.
@@ -1922,9 +1951,9 @@ class AbsTask(ABC):
             args["cmvn_file"] = cmvn_file
         args = argparse.Namespace(**args)
         model = cls.build_model(args)
-        if not isinstance(model, AbsESPnetModel):
+        if not isinstance(model, FunASRModel):
             raise RuntimeError(
-                f"model must inherit {AbsESPnetModel.__name__}, but got {type(model)}"
+                f"model must inherit {FunASRModel.__name__}, but got {type(model)}"
             )
         model.to(device)
         if model_file is not None:

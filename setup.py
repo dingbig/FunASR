@@ -17,7 +17,7 @@ requirements = {
         "humanfriendly",
         "scipy>=1.4.1",
         # "filelock",
-        "librosa==0.8.1",
+        "librosa",
         "jamo==0.4.1",  # For kss
         "PyYAML>=5.1.2",
         "soundfile>=0.10.2",
@@ -40,9 +40,12 @@ requirements = {
         "g2p",
         # PAI
         "oss2",
-        "kaldi-native-fbank",
+        # "kaldi-native-fbank",
         # timestamp
-        "edit-distance"
+        "edit-distance",
+        # textgrid
+        "textgrid",
+        "protobuf==3.20.0",
     ],
     # train: The modules invoked when training only.
     "train": [
@@ -78,7 +81,7 @@ requirements = {
         # "gtn==0.0.0",
     ],
     "setup": [
-        "numpy<=1.21.3",
+        "numpy",
         "pytest-runner",
     ],
     "test": [
@@ -123,7 +126,7 @@ setup(
     name="funasr",
     version=version,
     url="https://github.com/alibaba-damo-academy/FunASR.git",
-    author="Speech Lab, Alibaba Group, China",
+    author="Speech Lab of DAMO Academy, Alibaba Group",
     author_email="funasr@list.alibaba-inc.com",
     description="FunASR: A Fundamental End-to-End Speech Recognition Toolkit",
     long_description=open(os.path.join(dirname, "README.md"), encoding="utf-8").read(),

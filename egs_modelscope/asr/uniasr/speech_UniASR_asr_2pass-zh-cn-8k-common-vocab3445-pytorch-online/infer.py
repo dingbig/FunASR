@@ -16,14 +16,14 @@ def modelscope_infer_core(output_dir, split_dir, njob, idx):
         os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_list[gpu_id])
     else:
         os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
-    inference_pipline = pipeline(
+    inference_pipeline = pipeline(
         task=Tasks.auto_speech_recognition,
         model="damo/speech_UniASR_asr_2pass-zh-cn-8k-common-vocab3445-pytorch-online",
         output_dir=output_dir_job,
         batch_size=1
     )
     audio_in = os.path.join(split_dir, "wav.{}.scp".format(idx))
-    inference_pipline(audio_in=audio_in, param_dict={"decoding_model": "normal"})
+    inference_pipeline(audio_in=audio_in, param_dict={"decoding_model": "normal"})
 
 
 def modelscope_infer(params):
@@ -75,7 +75,7 @@ def modelscope_infer(params):
     # If text exists, compute CER
     text_in = os.path.join(params["data_dir"], "text")
     if os.path.exists(text_in):
-        text_proc_file = os.path.join(best_recog_path, "token")
+        text_proc_file = os.path.join(best_recog_path, "text")
         compute_wer(text_in, text_proc_file, os.path.join(best_recog_path, "text.cer"))
 
 

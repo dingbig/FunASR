@@ -1,77 +1,173 @@
-## Using paraformer with ONNXRuntime
-
-<p align="left">
-    <a href=""><img src="https://img.shields.io/badge/Python->=3.7,<=3.10-aff.svg"></a>
-    <a href=""><img src="https://img.shields.io/badge/OS-Linux%2C%20Win%2C%20Mac-pink.svg"></a>
-</p>
-
-### Introduction
-- Model comes from [speech_paraformer](https://www.modelscope.cn/models/damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/summary).
+# ONNXRuntime-python
 
 
-### Steps:
-1. Export the model.
-   - Command: (`Tips`: torch >= 1.11.0 is required.)
+## Install `funasr_onnx`
 
-      ```shell
-      python -m funasr.export.export_model [model_name] [export_dir] [true]
-      ```
-      `model_name`: the model is to export.
+install from pip
+```shell
+pip install -U funasr_onnx
+# For the users in China, you could install with the command:
+# pip install -U funasr_onnx -i https://mirror.sjtu.edu.cn/pypi/web/simple
+```
 
-      `export_dir`: the dir where the onnx is export.
+or install from source code
 
-       More details ref to ([export docs](https://github.com/alibaba-damo-academy/FunASR/tree/main/funasr/export))
+```shell
+git clone https://github.com/alibaba/FunASR.git && cd FunASR
+cd funasr/runtime/python/onnxruntime
+pip install -e ./
+# For the users in China, you could install with the command:
+# pip install -e ./ -i https://mirror.sjtu.edu.cn/pypi/web/simple
+```
 
-       - `e.g.`, Export model from modelscope
-         ```shell
-         python -m funasr.export.export_model --model-name damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch --export-dir ./export --type onnx --quantize False
-         ```
-       - `e.g.`, Export model from local path, the model'name must be `model.pb`.
-         ```shell
-         python -m funasr.export.export_model --model-name ./damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch --export-dir ./export --type onnx --quantize False
-         ```
+## Inference with runtime
+
+### Speech Recognition
+#### Paraformer
+ ```python
+from funasr_onnx import Paraformer
+from pathlib import Path
+
+model_dir = "damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+model = Paraformer(model_dir, batch_size=1, quantize=True)
+
+wav_path = ['{}/.cache/modelscope/hub/damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/example/asr_example.wav'.format(Path.home())]
+
+result = model(wav_path)
+print(result)
+ ```
+- `model_dir`: model_name in modelscope or local path downloaded from modelscope. If the local path is set, it should contain `model.onnx`, `config.yaml`, `am.mvn`
+- `batch_size`: `1` (Default), the batch size duration inference
+- `device_id`: `-1` (Default), infer on CPU. If you want to infer with GPU, set it to gpu_id (Please make sure that you have install the onnxruntime-gpu)
+- `quantize`: `False` (Default), load the model of `model.onnx` in `model_dir`. If set `True`, load the model of `model_quant.onnx` in `model_dir`
+- `intra_op_num_threads`: `4` (Default), sets the number of threads used for intraop parallelism on CPU
+
+Input: wav formt file, support formats: `str, np.ndarray, List[str]`
+
+Output: `List[str]`: recognition result
+
+#### Paraformer-online
+
+### Voice Activity Detection
+#### FSMN-VAD
+```python
+from funasr_onnx import Fsmn_vad
+from pathlib import Path
+
+model_dir = "damo/speech_fsmn_vad_zh-cn-16k-common-pytorch"
+wav_path = '{}/.cache/modelscope/hub/damo/speech_fsmn_vad_zh-cn-16k-common-pytorch/example/vad_example.wav'.format(Path.home())
+
+model = Fsmn_vad(model_dir)
+
+result = model(wav_path)
+print(result)
+```
+- `model_dir`: model_name in modelscope or local path downloaded from modelscope. If the local path is set, it should contain `model.onnx`, `config.yaml`, `am.mvn`
+- `batch_size`: `1` (Default), the batch size duration inference
+- `device_id`: `-1` (Default), infer on CPU. If you want to infer with GPU, set it to gpu_id (Please make sure that you have install the onnxruntime-gpu)
+- `quantize`: `False` (Default), load the model of `model.onnx` in `model_dir`. If set `True`, load the model of `model_quant.onnx` in `model_dir`
+- `intra_op_num_threads`: `4` (Default), sets the number of threads used for intraop parallelism on CPU
+
+Input: wav formt file, support formats: `str, np.ndarray, List[str]`
+
+Output: `List[str]`: recognition result
 
 
-2. Install the `rapid_paraformer`.
-   - Build the rapid_paraformer `whl`
-     ```shell
-     git clone https://github.com/alibaba/FunASR.git && cd FunASR
-     cd funasr/runtime/python/onnxruntime
-     python setup.py bdist_wheel
-     ```
-   - Install the build `whl`
-     ```bash
-     pip install dist/rapid_paraformer-0.0.1-py3-none-any.whl
-     ```
+#### FSMN-VAD-online
+```python
+from funasr_onnx import Fsmn_vad_online
+import soundfile
+from pathlib import Path
 
-3. Run the demo.
-   - Model_dir: the model path, which contains `model.onnx`, `config.yaml`, `am.mvn`.
-   - Input: wav formt file, support formats: `str, np.ndarray, List[str]`
-   - Output: `List[str]`: recognition result.
-   - Example:
-        ```python
-        from rapid_paraformer import Paraformer
+model_dir = "damo/speech_fsmn_vad_zh-cn-16k-common-pytorch"
+wav_path = '{}/.cache/modelscope/hub/damo/speech_fsmn_vad_zh-cn-16k-common-pytorch/example/vad_example.wav'.format(Path.home())
 
-        model_dir = "/nfs/zhifu.gzf/export/damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-        model = Paraformer(model_dir, batch_size=1)
+model = Fsmn_vad_online(model_dir)
 
-        wav_path = ['/nfs/zhifu.gzf/export/damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/example/asr_example.wav']
 
-        result = model(wav_path)
-        print(result)
-        ```
+##online vad
+speech, sample_rate = soundfile.read(wav_path)
+speech_length = speech.shape[0]
+#
+sample_offset = 0
+step = 1600
+param_dict = {'in_cache': []}
+for sample_offset in range(0, speech_length, min(step, speech_length - sample_offset)):
+    if sample_offset + step >= speech_length - 1:
+        step = speech_length - sample_offset
+        is_final = True
+    else:
+        is_final = False
+    param_dict['is_final'] = is_final
+    segments_result = model(audio_in=speech[sample_offset: sample_offset + step],
+                            param_dict=param_dict)
+    if segments_result:
+        print(segments_result)
+```
+- `model_dir`: model_name in modelscope or local path downloaded from modelscope. If the local path is set, it should contain `model.onnx`, `config.yaml`, `am.mvn`
+- `batch_size`: `1` (Default), the batch size duration inference
+- `device_id`: `-1` (Default), infer on CPU. If you want to infer with GPU, set it to gpu_id (Please make sure that you have install the onnxruntime-gpu)
+- `quantize`: `False` (Default), load the model of `model.onnx` in `model_dir`. If set `True`, load the model of `model_quant.onnx` in `model_dir`
+- `intra_op_num_threads`: `4` (Default), sets the number of threads used for intraop parallelism on CPU
 
-## Speed
+Input: wav formt file, support formats: `str, np.ndarray, List[str]`
 
-Environment：Intel(R) Xeon(R) Platinum 8163 CPU @ 2.50GHz
+Output: `List[str]`: recognition result
 
-Test [wav, 5.53s, 100 times avg.](https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav)
 
-| Backend |        RTF        |
-|:-------:|:-----------------:|
-| Pytorch |       0.110       |
-|  Onnx   |       0.038       |
+### Punctuation Restoration
+#### CT-Transformer
+```python
+from funasr_onnx import CT_Transformer
 
+model_dir = "damo/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
+model = CT_Transformer(model_dir)
+
+text_in="跨境河流是养育沿岸人民的生命之源长期以来为帮助下游地区防灾减灾中方技术人员在上游地区极为恶劣的自然条件下克服巨大困难甚至冒着生命危险向印方提供汛期水文资料处理紧急事件中方重视印方在跨境河流问题上的关切愿意进一步完善双方联合工作机制凡是中方能做的我们都会去做而且会做得更好我请印度朋友们放心中国在上游的任何开发利用都会经过科学规划和论证兼顾上下游的利益"
+result = model(text_in)
+print(result[0])
+```
+- `model_dir`: model_name in modelscope or local path downloaded from modelscope. If the local path is set, it should contain `model.onnx`, `config.yaml`, `am.mvn`
+- `device_id`: `-1` (Default), infer on CPU. If you want to infer with GPU, set it to gpu_id (Please make sure that you have install the onnxruntime-gpu)
+- `quantize`: `False` (Default), load the model of `model.onnx` in `model_dir`. If set `True`, load the model of `model_quant.onnx` in `model_dir`
+- `intra_op_num_threads`: `4` (Default), sets the number of threads used for intraop parallelism on CPU
+
+Input: `str`, raw text of asr result
+
+Output: `List[str]`: recognition result
+
+
+#### CT-Transformer-online
+```python
+from funasr_onnx import CT_Transformer_VadRealtime
+
+model_dir = "damo/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727"
+model = CT_Transformer_VadRealtime(model_dir)
+
+text_in  = "跨境河流是养育沿岸|人民的生命之源长期以来为帮助下游地区防灾减灾中方技术人员|在上游地区极为恶劣的自然条件下克服巨大困难甚至冒着生命危险|向印方提供汛期水文资料处理紧急事件中方重视印方在跨境河流>问题上的关切|愿意进一步完善双方联合工作机制|凡是|中方能做的我们|都会去做而且会做得更好我请印度朋友们放心中国在上游的|任何开发利用都会经过科学|规划和论证兼顾上下游的利益"
+
+vads = text_in.split("|")
+rec_result_all=""
+param_dict = {"cache": []}
+for vad in vads:
+    result = model(vad, param_dict=param_dict)
+    rec_result_all += result[0]
+
+print(rec_result_all)
+```
+- `model_dir`: model_name in modelscope or local path downloaded from modelscope. If the local path is set, it should contain `model.onnx`, `config.yaml`, `am.mvn`
+- `device_id`: `-1` (Default), infer on CPU. If you want to infer with GPU, set it to gpu_id (Please make sure that you have install the onnxruntime-gpu)
+- `quantize`: `False` (Default), load the model of `model.onnx` in `model_dir`. If set `True`, load the model of `model_quant.onnx` in `model_dir`
+- `intra_op_num_threads`: `4` (Default), sets the number of threads used for intraop parallelism on CPU
+
+Input: `str`, raw text of asr result
+
+Output: `List[str]`: recognition result
+
+## Performance benchmark
+
+Please ref to [benchmark](https://github.com/alibaba-damo-academy/FunASR/blob/main/funasr/runtime/python/benchmark_onnx.md)
 
 ## Acknowledge
-1. We acknowledge [SWHL](https://github.com/RapidAI/RapidASR) for contributing the onnxruntime(python api).
+1. This project is maintained by [FunASR community](https://github.com/alibaba-damo-academy/FunASR).
+2. We partially refer [SWHL](https://github.com/RapidAI/RapidASR) for onnxruntime (only for paraformer model).

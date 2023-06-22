@@ -43,6 +43,7 @@ class TestData2vecInferencePipelines(unittest.TestCase):
         rec_result = inference_pipeline(
             audio_in='https://modelscope.oss-cn-beijing.aliyuncs.com/test/audios/asr_example.wav')
         logger.info("asr inference result: {0}".format(rec_result))
+        assert rec_result["text"] == "每一天都要快乐喔"
 
     def test_paraformer(self):
         inference_pipeline = pipeline(
@@ -51,6 +52,7 @@ class TestData2vecInferencePipelines(unittest.TestCase):
         rec_result = inference_pipeline(
             audio_in='https://modelscope.oss-cn-beijing.aliyuncs.com/test/audios/asr_example.wav')
         logger.info("asr inference result: {0}".format(rec_result))
+        assert rec_result["text"] == "每一天都要快乐喔"
 
 
 class TestMfccaInferencePipelines(unittest.TestCase):
@@ -85,6 +87,7 @@ class TestParaformerInferencePipelines(unittest.TestCase):
         rec_result = inference_pipeline(
             audio_in='https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_hotword.wav')
         logger.info("asr inference result: {0}".format(rec_result))
+        assert rec_result["text"] == "国务院发展研究中心市场经济研究所副所长邓郁松认为"
 
     def test_paraformer_large_aishell1(self):
         inference_pipeline = pipeline(
@@ -93,6 +96,7 @@ class TestParaformerInferencePipelines(unittest.TestCase):
         rec_result = inference_pipeline(
             audio_in='https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav')
         logger.info("asr inference result: {0}".format(rec_result))
+        assert rec_result["text"] == "欢迎大家来体验达摩院推出的语音识别模型"
 
     def test_paraformer_large_aishell2(self):
         inference_pipeline = pipeline(
@@ -101,6 +105,7 @@ class TestParaformerInferencePipelines(unittest.TestCase):
         rec_result = inference_pipeline(
             audio_in='https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav')
         logger.info("asr inference result: {0}".format(rec_result))
+        assert rec_result["text"] == "欢迎大家来体验达摩院推出的语音识别模型"
 
     def test_paraformer_large_common(self):
         inference_pipeline = pipeline(
@@ -109,6 +114,25 @@ class TestParaformerInferencePipelines(unittest.TestCase):
         rec_result = inference_pipeline(
             audio_in='https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav')
         logger.info("asr inference result: {0}".format(rec_result))
+        assert rec_result["text"] == "欢迎大家来体验达摩院推出的语音识别模型"
+
+    def test_paraformer_large_online_common(self):
+        inference_pipeline = pipeline(
+            task=Tasks.auto_speech_recognition,
+            model='damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online')
+        rec_result = inference_pipeline(
+            audio_in='https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav')
+        logger.info("asr inference result: {0}".format(rec_result))
+        assert rec_result["text"] == "欢迎大 家来 体验达 摩院推 出的 语音识 别模 型"
+
+    def test_paraformer_online_common(self):
+        inference_pipeline = pipeline(
+            task=Tasks.auto_speech_recognition,
+            model='damo/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8404-online')
+        rec_result = inference_pipeline(
+            audio_in='https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav')
+        logger.info("asr inference result: {0}".format(rec_result))
+        assert rec_result["text"] == "欢迎 大家来 体验达 摩院推 出的 语音识 别模 型"
 
     def test_paraformer_tiny_commandword(self):
         inference_pipeline = pipeline(

@@ -34,11 +34,11 @@ def load_cmvn(cmvn_file):
     means = np.array(means_list).astype(np.float)
     vars = np.array(vars_list).astype(np.float)
     cmvn = np.array([means, vars])
-    cmvn = torch.as_tensor(cmvn)
+    cmvn = torch.as_tensor(cmvn, dtype=torch.float32)
     return cmvn
 
 
-def apply_cmvn(inputs, cmvn_file):  # noqa
+def apply_cmvn(inputs, cmvn):  # noqa
     """
     Apply CMVN with mvn data
     """
@@ -47,11 +47,10 @@ def apply_cmvn(inputs, cmvn_file):  # noqa
     dtype = inputs.dtype
     frame, dim = inputs.shape
 
-    cmvn = load_cmvn(cmvn_file)
-    means = np.tile(cmvn[0:1, :dim], (frame, 1))
-    vars = np.tile(cmvn[1:2, :dim], (frame, 1))
-    inputs += torch.from_numpy(means).type(dtype).to(device)
-    inputs *= torch.from_numpy(vars).type(dtype).to(device)
+    means = cmvn[0:1, :dim]
+    vars = cmvn[1:2, :dim]
+    inputs += means.to(device)
+    inputs *= vars.to(device)
 
     return inputs.type(torch.float32)
 
@@ -111,6 +110,7 @@ class WavFrontend(AbsFrontend):
         self.dither = dither
         self.snip_edges = snip_edges
         self.upsacle_samples = upsacle_samples
+        self.cmvn = None if self.cmvn_file is None else load_cmvn(self.cmvn_file)
 
     def output_size(self) -> int:
         return self.n_mels * self.lfr_m
@@ -140,8 +140,8 @@ class WavFrontend(AbsFrontend):
 
             if self.lfr_m != 1 or self.lfr_n != 1:
                 mat = apply_lfr(mat, self.lfr_m, self.lfr_n)
-            if self.cmvn_file is not None:
-                mat = apply_cmvn(mat, self.cmvn_file)
+            if self.cmvn is not None:
+                mat = apply_cmvn(mat, self.cmvn)
             feat_length = mat.size(0)
             feats.append(mat)
             feats_lens.append(feat_length)
@@ -194,8 +194,8 @@ class WavFrontend(AbsFrontend):
             mat = input[i, :input_lengths[i], :]
             if self.lfr_m != 1 or self.lfr_n != 1:
                 mat = apply_lfr(mat, self.lfr_m, self.lfr_n)
-            if self.cmvn_file is not None:
-                mat = apply_cmvn(mat, self.cmvn_file)
+            if self.cmvn is not None:
+                mat = apply_cmvn(mat, self.cmvn)
             feat_length = mat.size(0)
             feats.append(mat)
             feats_lens.append(feat_length)
@@ -395,8 +395,10 @@ class WavFrontendOnline(AbsFrontend):
         return feats_pad, feats_lens, lfr_splice_frame_idxs
 
     def forward(
-            self, input: torch.Tensor, input_lengths: torch.Tensor, is_final: bool = False
+        self, input: torch.Tensor, input_lengths: torch.Tensor, is_final: bool = False, reset: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if reset:
+            self.cache_reset()
         batch_size = input.shape[0]
         assert batch_size == 1, 'we support to extract feature online only when the batch size is equal to 1 now'
         waveforms, feats, feats_lengths = self.forward_fbank(input, input_lengths)  # input shape: B T D

@@ -1,114 +1,170 @@
+# ONNXRuntime-cpp
 
-
-
-## 快速使用
-
-### Windows
-
- 安装Vs2022 打开cpp_onnx目录下的cmake工程，直接 build即可。 本仓库已经准备好所有相关依赖库。
-
- Windows下已经预置fftw3及onnxruntime库
-
-
-### Linux
-See the bottom of this page: Building Guidance
-
-
-###  运行程序
-
-tester  /path/to/models/dir /path/to/wave/file
-
- 例如： tester /data/models  /data/test.wav
-
-/data/models 需要包括如下两个文件： model.onnx 和vocab.txt
-
-
-## 支持平台
-- Windows
-- Linux/Unix
-
-## 依赖
-- fftw3
-- openblas
-- onnxruntime
-
-## 导出onnx格式模型文件
-安装 modelscope与FunASR，依赖：torch，torchaudio，安装过程[详细参考文档](https://github.com/alibaba-damo-academy/FunASR/wiki)
-```shell
-pip install "modelscope[audio_asr]" -f https://modelscope.oss-cn-beijing.aliyuncs.com/releases/repo.html
-git clone https://github.com/alibaba/FunASR.git && cd FunASR
-pip install --editable ./
-```
-导出onnx模型，[详见](https://github.com/alibaba-damo-academy/FunASR/tree/main/funasr/export)，参考示例，从modelscope中模型导出：
+## Export the model
+### Install [modelscope and funasr](https://github.com/alibaba-damo-academy/FunASR#installation)
 
 ```shell
-python -m funasr.export.export_model --model-name damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch --export-dir ./export --type onnx --quantize False
+# pip3 install torch torchaudio
+pip install -U modelscope funasr
+# For the users in China, you could install with the command:
+# pip install -U modelscope funasr -f https://modelscope.oss-cn-beijing.aliyuncs.com/releases/repo.html -i https://mirror.sjtu.edu.cn/pypi/web/simple
 ```
 
-## Building Guidance for Linux/Unix
+### Export [onnx model](https://github.com/alibaba-damo-academy/FunASR/tree/main/funasr/export)
 
+```shell
+python -m funasr.export.export_model --model-name damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch --export-dir ./export --type onnx --quantize True
 ```
-git clone https://github.com/alibaba-damo-academy/FunASR.git && cd funasr/runtime/onnxruntime
-mkdir build
-cd build
+
+## Building for Linux/Unix
+
+### Download onnxruntime
+```shell
 # download an appropriate onnxruntime from https://github.com/microsoft/onnxruntime/releases/tag/v1.14.0
 # here we get a copy of onnxruntime for linux 64
 wget https://github.com/microsoft/onnxruntime/releases/download/v1.14.0/onnxruntime-linux-x64-1.14.0.tgz
 tar -zxvf onnxruntime-linux-x64-1.14.0.tgz
-# ls
-# onnxruntime-linux-x64-1.14.0  onnxruntime-linux-x64-1.14.0.tgz
-
-#install fftw3-dev
-ubuntu: apt install libfftw3-dev
-centos: yum install fftw fftw-devel
-
-#install openblas
-bash ./third_party/install_openblas.sh
-
-# build
- cmake  -DCMAKE_BUILD_TYPE=release .. -DONNXRUNTIME_DIR=/mnt/c/Users/ma139/RapidASR/cpp_onnx/build/onnxruntime-linux-x64-1.14.0
- make
-
- # then in the subfolder tester of current direcotry, you will see a program, tester
-
-````
-
-### The structure of a qualified onnxruntime package.
-```
-onnxruntime_xxx
-├───include
-└───lib
 ```
 
-## 线程数与性能关系
+### Install openblas
+```shell
+sudo apt-get install libopenblas-dev #ubuntu
+# sudo yum -y install openblas-devel #centos
+```
 
-测试环境Rocky Linux 8，仅测试cpp版本结果（未测python版本），@acely 
+### Build runtime
+```shell
+git clone https://github.com/alibaba-damo-academy/FunASR.git && cd funasr/runtime/onnxruntime
+mkdir build && cd build
+cmake  -DCMAKE_BUILD_TYPE=release .. -DONNXRUNTIME_DIR=/path/to/onnxruntime-linux-x64-1.14.0
+make
+```
+## Run the demo
 
-简述：
-在3台配置不同的机器上分别编译并测试，在fftw和onnxruntime版本都相同的前提下，识别同一个30分钟的音频文件，分别测试不同onnx线程数量的表现。
+### funasr-onnx-offline
+```shell
+./funasr-onnx-offline     --model-dir <string> [--quantize <string>]
+                          [--vad-dir <string>] [--vad-quant <string>]
+                          [--punc-dir <string>] [--punc-quant <string>]
+                          --wav-path <string> [--] [--version] [-h]
+Where:
+   --model-dir <string>
+     (required)  the asr model path, which contains model.onnx, config.yaml, am.mvn
+   --quantize <string>
+     false (Default), load the model of model.onnx in model_dir. If set true, load the model of model_quant.onnx in model_dir
 
-![线程数关系](images/threadnum.png "Windows ASR")
+   --vad-dir <string>
+     the vad model path, which contains model.onnx, vad.yaml, vad.mvn
+   --vad-quant <string>
+     false (Default), load the model of model.onnx in vad_dir. If set true, load the model of model_quant.onnx in vad_dir
 
-目前可以总结出大致规律：
+   --punc-dir <string>
+     the punc model path, which contains model.onnx, punc.yaml
+   --punc-quant <string>
+     false (Default), load the model of model.onnx in punc_dir. If set true, load the model of model_quant.onnx in punc_dir
 
-并非onnx线程数越多越好
-2线程比1线程提升显著，线程再多则提升较小
-线程数等于CPU物理核心数时效率最好
-实操建议：
+   --wav-path <string>
+     (required)  the input could be: 
+      wav_path, e.g.: asr_example.wav;
+      pcm_path, e.g.: asr_example.pcm; 
+      wav.scp, kaldi style wav list (wav_id \t wav_path)
+  
+   Required: --model-dir <string> --wav-path <string>
+   If use vad, please add: --vad-dir <string>
+   If use punc, please add: --punc-dir <string>
 
-大部分场景用3-4线程性价比最高
-低配机器用2线程合适
+For example:
+./funasr-onnx-offline \
+    --model-dir    ./asrmodel/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch \
+    --quantize  true \
+    --vad-dir   ./asrmodel/speech_fsmn_vad_zh-cn-16k-common-pytorch \
+    --punc-dir  ./asrmodel/punc_ct-transformer_zh-cn-common-vocab272727-pytorch \
+    --wav-path    ./vad_example.wav
+```
 
+### funasr-onnx-offline-vad
+```shell
+./funasr-onnx-offline-vad     --model-dir <string> [--quantize <string>]
+                              --wav-path <string> [--] [--version] [-h]
+Where:
+   --model-dir <string>
+     (required)  the vad model path, which contains model.onnx, vad.yaml, vad.mvn
+   --quantize <string>
+     false (Default), load the model of model.onnx in model_dir. If set true, load the model of model_quant.onnx in model_dir
+   --wav-path <string>
+     (required)  the input could be: 
+      wav_path, e.g.: asr_example.wav;
+      pcm_path, e.g.: asr_example.pcm; 
+      wav.scp, kaldi style wav list (wav_id \t wav_path)
 
+   Required: --model-dir <string> --wav-path <string>
 
-##  演示
+For example:
+./funasr-onnx-offline-vad \
+    --model-dir   ./asrmodel/speech_fsmn_vad_zh-cn-16k-common-pytorch \
+    --wav-path    ./vad_example.wav
+```
 
-![Windows演示](images/demo.png "Windows ASR")
+### funasr-onnx-offline-punc
+```shell
+./funasr-onnx-offline-punc    --model-dir <string> [--quantize <string>]
+                              --txt-path <string> [--] [--version] [-h]
+Where:
+   --model-dir <string>
+     (required)  the punc model path, which contains model.onnx, punc.yaml
+   --quantize <string>
+     false (Default), load the model of model.onnx in model_dir. If set true, load the model of model_quant.onnx in model_dir
+   --txt-path <string>
+     (required)  txt file path, one sentence per line
 
-## 注意
-本程序只支持 采样率16000hz, 位深16bit的 **单声道** 音频。
+   Required: --model-dir <string> --txt-path <string>
 
+For example:
+./funasr-onnx-offline-punc \
+    --model-dir  ./asrmodel/punc_ct-transformer_zh-cn-common-vocab272727-pytorch \
+    --txt-path   ./punc_example.txt
+```
+### funasr-onnx-offline-rtf
+```shell
+./funasr-onnx-offline-rtf     --model-dir <string> [--quantize <string>]
+                              [--vad-dir <string>] [--vad-quant <string>]
+                              [--punc-dir <string>] [--punc-quant <string>]
+                              --wav-path <string> --thread-num <int32_t>
+                              [--] [--version] [-h]
+Where:
+   --thread-num <int32_t>
+     (required)  multi-thread num for rtf
+   --model-dir <string>
+     (required)  the model path, which contains model.onnx, config.yaml, am.mvn
+   --quantize <string>
+     false (Default), load the model of model.onnx in model_dir. If set true, load the model of model_quant.onnx in model_dir
+
+   --vad-dir <string>
+     the vad model path, which contains model.onnx, vad.yaml, vad.mvn
+   --vad-quant <string>
+     false (Default), load the model of model.onnx in vad_dir. If set true, load the model of model_quant.onnx in vad_dir
+
+   --punc-dir <string>
+     the punc model path, which contains model.onnx, punc.yaml
+   --punc-quant <string>
+     false (Default), load the model of model.onnx in punc_dir. If set true, load the model of model_quant.onnx in punc_dir
+     
+   --wav-path <string>
+     (required)  the input could be: 
+      wav_path, e.g.: asr_example.wav;
+      pcm_path, e.g.: asr_example.pcm; 
+      wav.scp, kaldi style wav list (wav_id \t wav_path)
+
+For example:
+./funasr-onnx-offline-rtf \
+    --model-dir    ./asrmodel/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch \
+    --quantize  true \
+    --wav-path     ./aishell1_test.scp  \
+    --thread-num 32
+```
 
 ## Acknowledge
-1. We acknowledge [mayong](https://github.com/RapidAI/RapidASR/tree/main/cpp_onnx) for contributing the onnxruntime(cpp api).
-2. We borrowed a lot of code from [FastASR](https://github.com/chenkui164/FastASR) for audio frontend and text-postprocess.
+1. This project is maintained by [FunASR community](https://github.com/alibaba-damo-academy/FunASR).
+2. We acknowledge mayong for contributing the onnxruntime of Paraformer and CT_Transformer, [repo-asr](https://github.com/RapidAI/RapidASR/tree/main/cpp_onnx), [repo-punc](https://github.com/RapidAI/RapidPunc).
+3. We acknowledge [ChinaTelecom](https://github.com/zhuzizyf/damo-fsmn-vad-infer-httpserver) for contributing the VAD runtime.
+4. We borrowed a lot of code from [FastASR](https://github.com/chenkui164/FastASR) for audio frontend and text-postprocess.
