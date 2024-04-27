@@ -4,16 +4,23 @@
 namespace funasr {
 typedef struct
 {
-    std::string msg;
-    float  snippet_time;
+    std::string msg="";
+    std::string stamp="";
+    std::string tpass_msg="";
+    float snippet_time=0;
 }FUNASR_RECOG_RESULT;
 
 typedef struct
 {
     std::vector<std::vector<int>>* segments;
-    float  snippet_time;
+    float  snippet_time=0;
 }FUNASR_VAD_RESULT;
 
+typedef struct
+{
+    string msg="";
+    vector<string> arr_cache;
+}FUNASR_PUNC_RESULT;
 
 #ifdef _WIN32
 #include <codecvt>

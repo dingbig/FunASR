@@ -31,6 +31,9 @@ btnStart.disabled = true;
  
 btnConnect= document.getElementById('btnConnect');
 btnConnect.onclick = start;
+
+var awsslink= document.getElementById('wsslink');
+
  
 var rec_text="";  // for online rec asr result
 var offline_text=""; // for offline rec asr result
@@ -41,20 +44,51 @@ var upfile = document.getElementById('upfile');
  
 
 var isfilemode=false;  // if it is in file mode
+var file_ext="";
 var file_data_array;  // array to save file data
-var isconnected=0;    // for file rec, 0 is not begin, 1 is connected, -1 is error
-var totalsend=0;
  
+var totalsend=0;
+
+
+var now_ipaddress=window.location.href;
+now_ipaddress=now_ipaddress.replace("https://","wss://");
+now_ipaddress=now_ipaddress.replace("static/index.html","");
+var localport=window.location.port;
+now_ipaddress=now_ipaddress.replace(localport,"10095");
+document.getElementById('wssip').value=now_ipaddress;
+addresschange();
+function addresschange()
+{   
+	
+    var Uri = document.getElementById('wssip').value; 
+	document.getElementById('info_wslink').innerHTML="点此处手工授权（IOS手机）";
+	Uri=Uri.replace(/wss/g,"https");
+	console.log("addresschange uri=",Uri);
+	
+	awsslink.onclick=function(){
+		window.open(Uri, '_blank');
+		}
+	
+}
+upfile.onclick=function()
+{
+		btnStart.disabled = true;
+		btnStop.disabled = true;
+		btnConnect.disabled=false;
+	
+}
 upfile.onchange = function () {
 　　　　　　var len = this.files.length;  
             for(let i = 0; i < len; i++) {
                 let fileAudio = new FileReader();
                 fileAudio.readAsArrayBuffer(this.files[i]);  
+				file_ext=this.files[i].name.split('.').pop().toLowerCase();
+
                 fileAudio.onload = function() {
                  var audioblob= fileAudio.result;
 				 file_data_array=audioblob;
 				 console.log(audioblob);
-                 btnConnect.disabled = false;
+                  
                  info_div.innerHTML='请点击连接进行识别';
                
                 }
@@ -70,11 +104,11 @@ function play_file()
 		  var audio_record = document.getElementById('audio_record');
 		  audio_record.src =  (window.URL||webkitURL).createObjectURL(audioblob); 
           audio_record.controls=true;
-		  audio_record.play(); 
+		  //audio_record.play();  //not auto play
 }
 function start_file_send()
 {
-		sampleBuf=new Int16Array( file_data_array );
+		sampleBuf=new Uint8Array( file_data_array );
  
 		var chunk_size=960; // for asr chunk_size [5, 10, 5]
  
@@ -87,7 +121,7 @@ function start_file_send()
 		    sendBuf=sampleBuf.slice(0,chunk_size);
 			totalsend=totalsend+sampleBuf.length;
 			sampleBuf=sampleBuf.slice(chunk_size,sampleBuf.length);
-			wsconnecter.wsSend(sendBuf,false);
+			wsconnecter.wsSend(sendBuf);
  
 		 
 		}
@@ -97,24 +131,7 @@ function start_file_send()
  
 
 }
-function start_file_offline()
-{             
-           	  console.log("start_file_offline",isconnected);  
-              if(isconnected==-1)
-			  {
-				  return;
-			  }
-		      if(isconnected==0){
-			   
-		        setTimeout(start_file_offline, 1000);
-				return;
-		      }
-			start_file_send();
  
-	         
-
-		 
-}
 	
 function on_recoder_mode_change()
 {
@@ -133,19 +150,36 @@ function on_recoder_mode_change()
 				document.getElementById("mic_mode_div").style.display = 'block';
 				document.getElementById("rec_mode_div").style.display = 'none';
  
-				btnConnect.disabled=false;
+ 
+		        btnStart.disabled = true;
+		        btnStop.disabled = true;
+		        btnConnect.disabled=false;
 				isfilemode=false;
 			}
 			else
 			{
 				document.getElementById("mic_mode_div").style.display = 'none';
 				document.getElementById("rec_mode_div").style.display = 'block';
-                btnConnect.disabled = true;
+ 
+		        btnStart.disabled = true;
+		        btnStop.disabled = true;
+		        btnConnect.disabled=true;
 			    isfilemode=true;
 				info_div.innerHTML='请点击选择文件';
 			    
 	 
 			}
+}
+function getHotwords(){
+  var obj = document.getElementById("varHot");
+  
+  if(typeof(obj) == 'undefined' || obj==null || obj.value.length<=0){
+	return "";
+  }
+  let val = obj.value.toString();
+  console.log("hotwords="+val);
+  return val;
+
 }
 function getAsrMode(){
 
@@ -168,16 +202,46 @@ function getAsrMode(){
 		   return item;
 }
 		   
+function handleWithTimestamp(tmptext,tmptime)
+{
+	console.log( "tmptext: " + tmptext);
+	console.log( "tmptime: " + tmptime);
+    if(tmptime==null || tmptime=="undefined" || tmptext.length<=0)
+	{
+		return tmptext;
+	}
+	tmptext=tmptext.replace(/。/g, ","); // in case there are a lot of "。"
+	var words=tmptext.split(",");
+	var jsontime=JSON.parse(tmptime); //JSON.parse(tmptime.replace(/\]\]\[\[/g, "],[")); // in case there are a lot segments by VAD
+	var char_index=0;
+	var text_withtime="";
+	for(var i=0;i<words.length;i++)
+	{   
+	if(words[i]=="undefined"  || words[i].length<=0)
+	{
+		continue;
+	}
+        console.log("words===",words[i]);
+		console.log( "words: " + words[i]+",time="+jsontime[char_index][0]/1000);
+		text_withtime=text_withtime+jsontime[char_index][0]/1000+":"+words[i]+"\n";
+		char_index=char_index+words[i].length;
+	}
+	return text_withtime;
+	
 
+}
 // 语音识别结果; 对jsonMsg数据解析,将识别结果附加到编辑框中
 function getJsonMessage( jsonMsg ) {
 	//console.log(jsonMsg);
 	console.log( "message: " + JSON.parse(jsonMsg.data)['text'] );
 	var rectxt=""+JSON.parse(jsonMsg.data)['text'];
 	var asrmodel=JSON.parse(jsonMsg.data)['mode'];
-	if(asrmodel=="2pass-offline")
+	var is_final=JSON.parse(jsonMsg.data)['is_final'];
+	var timestamp=JSON.parse(jsonMsg.data)['timestamp'];
+	if(asrmodel=="2pass-offline" || asrmodel=="offline")
 	{
-		offline_text=offline_text+rectxt; //.replace(/ +/g,"");
+		
+		offline_text=offline_text+handleWithTimestamp(rectxt,timestamp); //rectxt; //.replace(/ +/g,"");
 		rec_text=offline_text;
 	}
 	else
@@ -189,13 +253,13 @@ function getJsonMessage( jsonMsg ) {
 	varArea.value=rec_text;
 	console.log( "offline_text: " + asrmodel+","+offline_text);
 	console.log( "rec_text: " + rec_text);
-	if (isfilemode==true){
+	if (isfilemode==true && is_final==false){
 		console.log("call stop ws!");
 		play_file();
 		wsconnecter.wsStop();
         
 		info_div.innerHTML="请点击连接";
-		isconnected=0;
+ 
 		btnStart.disabled = true;
 		btnStop.disabled = true;
 		btnConnect.disabled=false;
@@ -207,12 +271,19 @@ function getJsonMessage( jsonMsg ) {
 
 // 连接状态响应
 function getConnState( connState ) {
-	if ( connState === 0 ) {
+	if ( connState === 0 ) { //on open
  
  
 		info_div.innerHTML='连接成功!请点击开始';
 		if (isfilemode==true){
 			info_div.innerHTML='请耐心等待,大文件等待时间更长';
+			start_file_send();
+		}
+		else
+		{
+			btnStart.disabled = false;
+			btnStop.disabled = true;
+			btnConnect.disabled=true;
 		}
 	} else if ( connState === 1 ) {
 		//stop();
@@ -220,9 +291,11 @@ function getConnState( connState ) {
 		stop();
 		console.log( 'connecttion error' );
 		 
-		alert("连接地址"+document.getElementById('wssip').value+"失败,请检查asr地址和端口，并确保h5服务和asr服务在同一个域内。或换个浏览器试试。");
+		alert("连接地址"+document.getElementById('wssip').value+"失败,请检查asr地址和端口。或试试界面上手动授权，再连接。");
 		btnStart.disabled = true;
-		isconnected=0;
+		btnStop.disabled = true;
+		btnConnect.disabled=false;
+ 
  
 		info_div.innerHTML='请点击连接';
 	}
@@ -234,7 +307,9 @@ function record()
 		 rec.open( function(){
 		 rec.start();
 		 console.log("开始");
-		 btnStart.disabled = true;
+			btnStart.disabled = true;
+			btnStop.disabled = false;
+			btnConnect.disabled=true;
 		 });
  
 }
@@ -247,27 +322,29 @@ function start() {
 	// 清除显示
 	clear();
 	//控件状态更新
- 	console.log("isfilemode"+isfilemode+","+isconnected);
-    info_div.innerHTML="正在连接asr服务器，请等待...";
+ 	console.log("isfilemode"+isfilemode);
+    
 	//启动连接
 	var ret=wsconnecter.wsStart();
+	// 1 is ok, 0 is error
 	if(ret==1){
+		info_div.innerHTML="正在连接asr服务器，请等待...";
 		isRec = true;
-		btnStart.disabled = false;
-		btnStop.disabled = false;
+		btnStart.disabled = true;
+		btnStop.disabled = true;
 		btnConnect.disabled=true;
-		if (isfilemode)
-		{
-                 console.log("start file now");
-			     start_file_offline();
  
-				 btnStart.disabled = true;
-		         btnStop.disabled = true;
-		         btnConnect.disabled = true;
-		}
         return 1;
 	}
-	return 0;
+	else
+	{
+		info_div.innerHTML="请点击开始";
+		btnStart.disabled = true;
+		btnStop.disabled = true;
+		btnConnect.disabled=false;
+ 
+		return 0;
+	}
 }
 
  
@@ -282,17 +359,17 @@ function stop() {
 		};
 		console.log(request);
 		if(sampleBuf.length>0){
-		wsconnecter.wsSend(sampleBuf,false);
+		wsconnecter.wsSend(sampleBuf);
 		console.log("sampleBuf.length"+sampleBuf.length);
 		sampleBuf=new Int16Array();
 		}
-	   wsconnecter.wsSend( JSON.stringify(request) ,false);
+	   wsconnecter.wsSend( JSON.stringify(request) );
  
 	  
 	
 	 
 
-	 //isconnected=0;
+ 
 	// 控件状态更新
 	
 	isRec = false;
@@ -301,12 +378,15 @@ function stop() {
    if(isfilemode==false){
 	    btnStop.disabled = true;
 		btnStart.disabled = true;
-		btnConnect.disabled=false;
+		btnConnect.disabled=true;
+		//wait 3s for asr result
 	  setTimeout(function(){
 		console.log("call stop ws!");
 		wsconnecter.wsStop();
-        isconnected=0;
+		btnConnect.disabled=false;
 		info_div.innerHTML="请点击连接";}, 3000 );
+ 
+ 
 	   
 	rec.stop(function(blob,duration){
   
@@ -317,7 +397,7 @@ function stop() {
 		var audio_record = document.getElementById('audio_record');
 		audio_record.src =  (window.URL||webkitURL).createObjectURL(theblob); 
         audio_record.controls=true;
-		audio_record.play(); 
+		//audio_record.play(); 
          	
 
 	}   ,function(msg){
@@ -361,7 +441,7 @@ function recProcess( buffer, powerLevel, bufferDuration, bufferSampleRate,newBuf
 		while(sampleBuf.length>=chunk_size){
 		    sendBuf=sampleBuf.slice(0,chunk_size);
 			sampleBuf=sampleBuf.slice(chunk_size,sampleBuf.length);
-			wsconnecter.wsSend(sendBuf,false);
+			wsconnecter.wsSend(sendBuf);
 			
 			
 		 

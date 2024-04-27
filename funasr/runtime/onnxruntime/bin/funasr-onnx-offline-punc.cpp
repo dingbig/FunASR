@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
 
     TCLAP::CmdLine cmd("funasr-onnx-offline-punc", ' ', "1.0");
     TCLAP::ValueArg<std::string>    model_dir("", MODEL_DIR, "the punc model path, which contains model.onnx, punc.yaml", true, "", "string");
-    TCLAP::ValueArg<std::string>    quantize("", QUANTIZE, "false (Default), load the model of model.onnx in model_dir. If set true, load the model of model_quant.onnx in model_dir", false, "false", "string");
+    TCLAP::ValueArg<std::string>    quantize("", QUANTIZE, "false (Default), load the model of model.onnx in model_dir. If set true, load the model of model_quant.onnx in model_dir", false, "true", "string");
     TCLAP::ValueArg<std::string> txt_path("", TXT_PATH, "txt file path, one sentence per line", true, "", "string");
 
     cmd.add(model_dir);
@@ -84,11 +84,13 @@ int main(int argc, char *argv[])
     long taking_micros = 0;
     for(auto& txt_str : txt_list){
         gettimeofday(&start, NULL);
-        string result=CTTransformerInfer(punc_hanlde, txt_str.c_str(), RASR_NONE, NULL);
+        FUNASR_RESULT result=CTTransformerInfer(punc_hanlde, txt_str.c_str(), RASR_NONE, NULL);
         gettimeofday(&end, NULL);
         seconds = (end.tv_sec - start.tv_sec);
         taking_micros += ((seconds * 1000000) + end.tv_usec) - (start.tv_usec);
-        LOG(INFO)<<"Results: "<<result;
+        string msg = FunASRGetResult(result, 0);
+        LOG(INFO)<<"Results: "<<msg;
+        CTTransformerFreeResult(result);
     }
 
     LOG(INFO) << "Model inference takes: " << (double)taking_micros / 1000000 <<" s";

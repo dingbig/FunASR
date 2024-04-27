@@ -10,15 +10,14 @@ from typing import Optional
 from typing import Tuple
 
 import torch
-from typeguard import check_argument_types
 
 from funasr.layers.abs_normalize import AbsNormalize
+from funasr.models.base_model import FunASRModel
 from funasr.models.encoder.abs_encoder import AbsEncoder
 from funasr.models.frontend.abs_frontend import AbsFrontend
 from funasr.models.preencoder.abs_preencoder import AbsPreEncoder
 from funasr.models.specaug.abs_specaug import AbsSpecAug
 from funasr.torch_utils.device_funcs import force_gatherable
-from funasr.models.base_model import FunASRModel
 
 if LooseVersion(torch.__version__) >= LooseVersion("1.6.0"):
     from torch.cuda.amp import autocast
@@ -37,10 +36,9 @@ class Data2VecPretrainModel(FunASRModel):
             frontend: Optional[AbsFrontend],
             specaug: Optional[AbsSpecAug],
             normalize: Optional[AbsNormalize],
-            preencoder: Optional[AbsPreEncoder],
             encoder: AbsEncoder,
+            preencoder: Optional[AbsPreEncoder] = None,
     ):
-        assert check_argument_types()
 
         super().__init__()
 

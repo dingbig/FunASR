@@ -22,9 +22,7 @@ import numpy as np
 import requests
 import torch
 from packaging.version import parse as V
-from typeguard import check_argument_types
-from typeguard import check_return_type
-from  funasr.build_utils.build_model_from_file import build_model_from_file
+from funasr.build_utils.build_model_from_file import build_model_from_file
 from funasr.models.e2e_asr_contextual_paraformer import NeatContextualParaformer
 from funasr.models.e2e_asr_paraformer import BiCifParaformer, ContextualParaformer
 from funasr.models.frontend.wav_frontend import WavFrontend, WavFrontendOnline
@@ -78,7 +76,6 @@ class Speech2Text:
             frontend_conf: dict = None,
             **kwargs,
     ):
-        assert check_argument_types()
 
         # 1. Build ASR model
         scorers = {}
@@ -192,7 +189,6 @@ class Speech2Text:
             text, token, token_int, hyp
 
         """
-        assert check_argument_types()
 
         # Input as audio signal
         if isinstance(speech, np.ndarray):
@@ -248,7 +244,6 @@ class Speech2Text:
                 text = None
             results.append((text, token, token_int, hyp))
 
-        assert check_return_type(results)
         return results
 
 
@@ -285,10 +280,10 @@ class Speech2TextParaformer:
             nbest: int = 1,
             frontend_conf: dict = None,
             hotword_list_or_file: str = None,
+            clas_scale: float = 1.0,
             decoding_ind: int = 0,
             **kwargs,
     ):
-        assert check_argument_types()
 
         # 1. Build ASR model
         scorers = {}
@@ -382,6 +377,7 @@ class Speech2TextParaformer:
         # 6. [Optional] Build hotword list from str, local file or url
         self.hotword_list = None
         self.hotword_list = self.generate_hotwords_list(hotword_list_or_file)
+        self.clas_scale = clas_scale
 
         is_use_lm = lm_weight != 0.0 and lm_file is not None
         if (ctc_weight == 0.0 or asr_model.ctc == None) and not is_use_lm:
@@ -413,7 +409,6 @@ class Speech2TextParaformer:
                 text, token, token_int, hyp
 
         """
-        assert check_argument_types()
 
         # Input as audio signal
         if isinstance(speech, np.ndarray):
@@ -446,16 +441,20 @@ class Speech2TextParaformer:
         pre_token_length = pre_token_length.round().long()
         if torch.max(pre_token_length) < 1:
             return []
-        if not isinstance(self.asr_model, ContextualParaformer) and not isinstance(self.asr_model,
-                                                                                   NeatContextualParaformer):
+        if not isinstance(self.asr_model, ContextualParaformer) and \
+            not isinstance(self.asr_model, NeatContextualParaformer):
             if self.hotword_list:
                 logging.warning("Hotword is given but asr model is not a ContextualParaformer.")
             decoder_outs = self.asr_model.cal_decoder_with_predictor(enc, enc_len, pre_acoustic_embeds,
                                                                      pre_token_length)
             decoder_out, ys_pad_lens = decoder_outs[0], decoder_outs[1]
         else:
-            decoder_outs = self.asr_model.cal_decoder_with_predictor(enc, enc_len, pre_acoustic_embeds,
-                                                                     pre_token_length, hw_list=self.hotword_list)
+            decoder_outs = self.asr_model.cal_decoder_with_predictor(enc, 
+                                                                     enc_len, 
+                                                                     pre_acoustic_embeds,
+                                                                     pre_token_length, 
+                                                                     hw_list=self.hotword_list,
+                                                                     clas_scale=self.clas_scale)
             decoder_out, ys_pad_lens = decoder_outs[0], decoder_outs[1]
 
         if isinstance(self.asr_model, BiCifParaformer):
@@ -516,7 +515,6 @@ class Speech2TextParaformer:
                                                                vad_offset=begin_time)
                 results.append((text, token, token_int, hyp, timestamp, enc_len_batch_total, lfr_factor))
 
-        # assert check_return_type(results)
         return results
 
     def generate_hotwords_list(self, hotword_list_or_file):
@@ -609,7 +607,7 @@ class Speech2TextParaformer:
             hotword_str_list = []
             for hw in hotword_list_or_file.strip().split():
                 hotword_str_list.append(hw)
-                hw_list = hw
+                hw_list = hw.strip().split()
                 if seg_dict is not None:
                     hw_list = seg_tokenize(hw_list, seg_dict)
                 hotword_list.append(self.converter.tokens2ids(hw_list))
@@ -656,7 +654,6 @@ class Speech2TextParaformerOnline:
             hotword_list_or_file: str = None,
             **kwargs,
     ):
-        assert check_argument_types()
 
         # 1. Build ASR model
         scorers = {}
@@ -776,7 +773,6 @@ class Speech2TextParaformerOnline:
                 text, token, token_int, hyp
 
         """
-        assert check_argument_types()
         results = []
         cache_en = cache["encoder"]
         if speech.shape[1] < 16 * 60 and cache_en["is_final"]:
@@ -871,7 +867,6 @@ class Speech2TextParaformerOnline:
 
                 results.append(postprocessed_result)
 
-        # assert check_return_type(results)
         return results
 
 
@@ -912,7 +907,6 @@ class Speech2TextUniASR:
             frontend_conf: dict = None,
             **kwargs,
     ):
-        assert check_argument_types()
 
         # 1. Build ASR model
         scorers = {}
@@ -1036,7 +1030,6 @@ class Speech2TextUniASR:
             text, token, token_int, hyp
 
         """
-        assert check_argument_types()
 
         # Input as audio signal
         if isinstance(speech, np.ndarray):
@@ -1104,7 +1097,6 @@ class Speech2TextUniASR:
                 text = None
             results.append((text, token, token_int, hyp))
 
-        assert check_return_type(results)
         return results
 
 
@@ -1143,7 +1135,6 @@ class Speech2TextMFCCA:
             streaming: bool = False,
             **kwargs,
     ):
-        assert check_argument_types()
 
         # 1. Build ASR model
         scorers = {}
@@ -1248,7 +1239,6 @@ class Speech2TextMFCCA:
             text, token, token_int, hyp
 
         """
-        assert check_argument_types()
         # Input as audio signal
         if isinstance(speech, np.ndarray):
             speech = torch.tensor(speech)
@@ -1298,7 +1288,6 @@ class Speech2TextMFCCA:
                 text = None
             results.append((text, token, token_int, hyp))
 
-        assert check_return_type(results)
         return results
 
 
@@ -1347,6 +1336,7 @@ class Speech2TextTransducer:
             nbest: int = 1,
             streaming: bool = False,
             simu_streaming: bool = False,
+            full_utt: bool = False,
             chunk_size: int = 16,
             left_context: int = 32,
             right_context: int = 0,
@@ -1355,7 +1345,6 @@ class Speech2TextTransducer:
         """Construct a Speech2Text object."""
         super().__init__()
 
-        assert check_argument_types()
         asr_model, asr_train_args = build_model_from_file(
             asr_train_config, asr_model_file, cmvn_file, device
         )
@@ -1442,6 +1431,7 @@ class Speech2TextTransducer:
         self.beam_search = beam_search
         self.streaming = streaming
         self.simu_streaming = simu_streaming
+        self.full_utt = full_utt
         self.chunk_size = max(chunk_size, 0)
         self.left_context = left_context
         self.right_context = max(right_context, 0)
@@ -1461,6 +1451,7 @@ class Speech2TextTransducer:
             self._ctx = self.asr_model.encoder.get_encoder_input_size(
                 self.window_size
             )
+            self._right_ctx = right_context
 
             self.last_chunk_length = (
                     self.asr_model.encoder.embed.min_frame_length + self.right_context + 1
@@ -1534,7 +1525,6 @@ class Speech2TextTransducer:
         Returns:
             nbest_hypothesis: N-best hypothesis.
         """
-        assert check_argument_types()
 
         if isinstance(speech, np.ndarray):
             speech = torch.tensor(speech)
@@ -1559,7 +1549,7 @@ class Speech2TextTransducer:
         return nbest_hyps
 
     @torch.no_grad()
-    def __call__(self, speech: Union[torch.Tensor, np.ndarray]) -> List[HypothesisTransducer]:
+    def full_utt_decode(self, speech: Union[torch.Tensor, np.ndarray]) -> List[HypothesisTransducer]:
         """Speech2Text call.
         Args:
             speech: Speech data. (S)
@@ -1567,6 +1557,36 @@ class Speech2TextTransducer:
             nbest_hypothesis: N-best hypothesis.
         """
         assert check_argument_types()
+
+        if isinstance(speech, np.ndarray):
+            speech = torch.tensor(speech)
+
+        if self.frontend is not None:
+            speech = torch.unsqueeze(speech, axis=0)
+            speech_lengths = speech.new_full([1], dtype=torch.long, fill_value=speech.size(1))
+            feats, feats_lengths = self.frontend(speech, speech_lengths)
+        else:
+            feats = speech.unsqueeze(0).to(getattr(torch, self.dtype))
+            feats_lengths = feats.new_full([1], dtype=torch.long, fill_value=feats.size(1))
+
+        if self.asr_model.normalize is not None:
+            feats, feats_lengths = self.asr_model.normalize(feats, feats_lengths)
+
+        feats = to_device(feats, device=self.device)
+        feats_lengths = to_device(feats_lengths, device=self.device)
+        enc_out = self.asr_model.encoder.full_utt_forward(feats, feats_lengths)
+        nbest_hyps = self.beam_search(enc_out[0])
+
+        return nbest_hyps
+
+    @torch.no_grad()
+    def __call__(self, speech: Union[torch.Tensor, np.ndarray]) -> List[HypothesisTransducer]:
+        """Speech2Text call.
+        Args:
+            speech: Speech data. (S)
+        Returns:
+            nbest_hypothesis: N-best hypothesis.
+        """
 
         if isinstance(speech, np.ndarray):
             speech = torch.tensor(speech)
@@ -1608,35 +1628,8 @@ class Speech2TextTransducer:
                 text = None
             results.append((text, token, token_int, hyp))
 
-            assert check_return_type(results)
 
         return results
-
-    @staticmethod
-    def from_pretrained(
-            model_tag: Optional[str] = None,
-            **kwargs: Optional[Any],
-    ) -> Speech2Text:
-        """Build Speech2Text instance from the pretrained model.
-        Args:
-            model_tag: Model tag of the pretrained models.
-        Return:
-            : Speech2Text instance.
-        """
-        if model_tag is not None:
-            try:
-                from espnet_model_zoo.downloader import ModelDownloader
-
-            except ImportError:
-                logging.error(
-                    "`espnet_model_zoo` is not installed. "
-                    "Please install via `pip install -U espnet_model_zoo`."
-                )
-                raise
-            d = ModelDownloader()
-            kwargs.update(**d.download_and_unpack(model_tag))
-
-        return Speech2TextTransducer(**kwargs)
 
 
 class Speech2TextSAASR:
@@ -1675,7 +1668,6 @@ class Speech2TextSAASR:
             frontend_conf: dict = None,
             **kwargs,
     ):
-        assert check_argument_types()
 
         # 1. Build ASR model
         scorers = {}
@@ -1793,7 +1785,6 @@ class Speech2TextSAASR:
             text, text_id, token, token_int, hyp
 
         """
-        assert check_argument_types()
 
         # Input as audio signal
         if isinstance(speech, np.ndarray):
@@ -1886,5 +1877,4 @@ class Speech2TextSAASR:
 
             results.append((text, text_id, token, token_int, hyp))
 
-        assert check_return_type(results)
         return results

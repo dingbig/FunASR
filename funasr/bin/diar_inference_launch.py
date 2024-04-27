@@ -18,7 +18,6 @@ import numpy as np
 import soundfile
 import torch
 from scipy.signal import medfilt
-from typeguard import check_argument_types
 
 from funasr.bin.diar_infer import Speech2DiarizationSOND, Speech2DiarizationEEND
 from funasr.datasets.iterable_dataset import load_bytes
@@ -52,7 +51,6 @@ def inference_sond(
         mode: str = "sond",
         **kwargs,
 ):
-    assert check_argument_types()
     ncpu = kwargs.get("ncpu", 1)
     torch.set_num_threads(ncpu)
     if batch_size > 1:
@@ -94,10 +92,7 @@ def inference_sond(
             embedding_node="resnet1_dense"
         )
         logging.info("speech2xvector_kwargs: {}".format(speech2xvector_kwargs))
-        speech2xvector = Speech2Xvector.from_pretrained(
-            model_tag=model_tag,
-            **speech2xvector_kwargs,
-        )
+        speech2xvector = Speech2Xvector(**speech2xvector_kwargs)
         speech2xvector.sv_model.eval()
 
     # 2b. Build speech2diar
@@ -111,10 +106,7 @@ def inference_sond(
         dur_threshold=dur_threshold,
     )
     logging.info("speech2diarization_kwargs: {}".format(speech2diar_kwargs))
-    speech2diar = Speech2DiarizationSOND.from_pretrained(
-        model_tag=model_tag,
-        **speech2diar_kwargs,
-    )
+    speech2diar = Speech2DiarizationSOND(**speech2diar_kwargs)
     speech2diar.diar_model.eval()
 
     def output_results_str(results: dict, uttid: str):
@@ -233,7 +225,6 @@ def inference_eend(
         param_dict: Optional[dict] = None,
         **kwargs,
 ):
-    assert check_argument_types()
     ncpu = kwargs.get("ncpu", 1)
     torch.set_num_threads(ncpu)
     if batch_size > 1:
@@ -260,10 +251,7 @@ def inference_eend(
         dtype=dtype,
     )
     logging.info("speech2diarization_kwargs: {}".format(speech2diar_kwargs))
-    speech2diar = Speech2DiarizationEEND.from_pretrained(
-        model_tag=model_tag,
-        **speech2diar_kwargs,
-    )
+    speech2diar = Speech2DiarizationEEND(**speech2diar_kwargs)
     speech2diar.diar_model.eval()
 
     def output_results_str(results: dict, uttid: str):
@@ -465,10 +453,16 @@ def get_parser():
         help="The batch size for inference",
     )
     group.add_argument(
-        "--diar_smooth_size",
+        "--smooth_size",
         type=int,
         default=121,
         help="The smoothing size for post-processing"
+    )
+    group.add_argument(
+        "--dur_threshold",
+        type=int,
+        default=10,
+        help="The threshold of minimum duration"
     )
 
     return parser

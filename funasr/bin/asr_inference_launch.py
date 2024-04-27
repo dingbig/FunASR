@@ -19,8 +19,8 @@ from typing import Union
 import numpy as np
 import torch
 import torchaudio
+import soundfile
 import yaml
-from typeguard import check_argument_types
 
 from funasr.bin.asr_infer import Speech2Text
 from funasr.bin.asr_infer import Speech2TextMFCCA
@@ -79,7 +79,6 @@ def inference_asr(
         param_dict: dict = None,
         **kwargs,
 ):
-    assert check_argument_types()
     ncpu = kwargs.get("ncpu", 1)
     torch.set_num_threads(ncpu)
     if batch_size > 1:
@@ -239,7 +238,6 @@ def inference_paraformer(
         param_dict: dict = None,
         **kwargs,
 ):
-    assert check_argument_types()
     ncpu = kwargs.get("ncpu", 1)
     torch.set_num_threads(ncpu)
 
@@ -257,11 +255,11 @@ def inference_paraformer(
     if param_dict is not None:
         hotword_list_or_file = param_dict.get('hotword')
         export_mode = param_dict.get("export_mode", False)
+        clas_scale = param_dict.get('clas_scale', 1.0)
     else:
         hotword_list_or_file = None
+        clas_scale = 1.0
 
-    if kwargs.get("device", None) == "cpu":
-        ngpu = 0
     if ngpu >= 1 and torch.cuda.is_available():
         device = "cuda"
     else:
@@ -291,6 +289,7 @@ def inference_paraformer(
         penalty=penalty,
         nbest=nbest,
         hotword_list_or_file=hotword_list_or_file,
+        clas_scale=clas_scale,
     )
 
     speech2text = Speech2TextParaformer(**speech2text_kwargs)
@@ -369,7 +368,7 @@ def inference_paraformer(
             results = speech2text(**batch)
             if len(results) < 1:
                 hyp = Hypothesis(score=0.0, scores={}, states={}, yseq=[])
-                results = [[" ", ["sil"], [2], hyp, 10, 6]] * nbest
+                results = [[" ", ["sil"], [2], hyp, 10, 6, []]] * nbest
             time_end = time.time()
             forward_time = time_end - time_beg
             lfr_factor = results[0][-1]
@@ -438,6 +437,7 @@ def inference_paraformer(
         logging.info(rtf_avg)
         if writer is not None:
             ibest_writer["rtf"]["rtf_avf"] = rtf_avg
+        torch.cuda.empty_cache()
         return asr_result_list
 
     return _forward
@@ -480,7 +480,6 @@ def inference_paraformer_vad_punc(
         param_dict: dict = None,
         **kwargs,
 ):
-    assert check_argument_types()
     ncpu = kwargs.get("ncpu", 1)
     torch.set_num_threads(ncpu)
 
@@ -564,6 +563,8 @@ def inference_paraformer_vad_punc(
         if 'hotword' in kwargs:
             hotword_list_or_file = kwargs['hotword']
 
+        speech2vadsegment.vad_model.vad_opts.max_single_segment_time = kwargs.get("max_single_segment_time", 60000)
+        batch_size_token_threshold_s = kwargs.get("batch_size_token_threshold_s", int(speech2vadsegment.vad_model.vad_opts.max_single_segment_time*0.67/1000)) * 1000
         batch_size_token = kwargs.get("batch_size_token", 6000)
         print("batch_size_token: ", batch_size_token)
 
@@ -620,17 +621,33 @@ def inference_paraformer_vad_punc(
             sorted_data = sorted(data_with_index, key=lambda x: x[0][1] - x[0][0])
             results_sorted = []
             
+            if not len(sorted_data):
+                key = keys[0]
+                # no active segments after VAD
+                if writer is not None:
+                    # Write empty results
+                    ibest_writer["token"][key] = ""
+                    ibest_writer["token_int"][key] = ""
+                    ibest_writer["vad"][key] = ""
+                    ibest_writer["text"][key] = ""
+                    ibest_writer["text_with_punc"][key] = ""
+                    if use_timestamp:
+                        ibest_writer["time_stamp"][key] = ""
+
+                logging.info("decoding, utt: {}, empty speech".format(key))
+                continue
+
             batch_size_token_ms = batch_size_token*60
             if speech2text.device == "cpu":
                 batch_size_token_ms = 0
-            batch_size_token_ms = max(batch_size_token_ms, sorted_data[0][0][1] - sorted_data[0][0][0])
+            if len(sorted_data) > 0 and len(sorted_data[0]) > 0:
+                batch_size_token_ms = max(batch_size_token_ms, sorted_data[0][0][1] - sorted_data[0][0][0])
             
             batch_size_token_ms_cum = 0
             beg_idx = 0
             for j, _ in enumerate(range(0, n)):
                 batch_size_token_ms_cum += (sorted_data[j][0][1] - sorted_data[j][0][0])
-                if j < n - 1 and (batch_size_token_ms_cum + sorted_data[j + 1][0][1] - sorted_data[j + 1][0][
-                    0]) < batch_size_token_ms:
+                if j < n - 1 and (batch_size_token_ms_cum + sorted_data[j + 1][0][1] - sorted_data[j + 1][0][0]) < batch_size_token_ms and (sorted_data[j + 1][0][1] - sorted_data[j + 1][0][0]) < batch_size_token_threshold_s:
                     continue
                 batch_size_token_ms_cum = 0
                 end_idx = j + 1
@@ -713,6 +730,7 @@ def inference_paraformer_vad_punc(
                     ibest_writer["time_stamp"][key] = "{}".format(time_stamp_postprocessed)
 
             logging.info("decoding, utt: {}, predictions: {}".format(key, text_postprocessed_punc))
+        torch.cuda.empty_cache()
         return asr_result_list
 
     return _forward
@@ -748,7 +766,6 @@ def inference_paraformer_online(
         param_dict: dict = None,
         **kwargs,
 ):
-    assert check_argument_types()
 
     if word_lm_train_config is not None:
         raise NotImplementedError("Word LM is not implemented")
@@ -863,7 +880,13 @@ def inference_paraformer_online(
             raw_inputs = _load_bytes(data_path_and_name_and_type[0])
             raw_inputs = torch.tensor(raw_inputs)
         if data_path_and_name_and_type is not None and data_path_and_name_and_type[2] == "sound":
-            raw_inputs = torchaudio.load(data_path_and_name_and_type[0])[0][0]
+            try:
+                raw_inputs = torchaudio.load(data_path_and_name_and_type[0])[0][0]
+            except:
+                raw_inputs = soundfile.read(data_path_and_name_and_type[0], dtype='float32')[0]
+                if raw_inputs.ndim == 2:
+                    raw_inputs = raw_inputs[:, 0]
+                raw_inputs = torch.tensor(raw_inputs)
         if data_path_and_name_and_type is None and raw_inputs is not None:
             if isinstance(raw_inputs, np.ndarray):
                 raw_inputs = torch.tensor(raw_inputs)
@@ -950,7 +973,6 @@ def inference_uniasr(
         param_dict: dict = None,
         **kwargs,
 ):
-    assert check_argument_types()
     ncpu = kwargs.get("ncpu", 1)
     torch.set_num_threads(ncpu)
     if batch_size > 1:
@@ -1119,7 +1141,6 @@ def inference_mfcca(
         param_dict: dict = None,
         **kwargs,
 ):
-    assert check_argument_types()
     ncpu = kwargs.get("ncpu", 1)
     torch.set_num_threads(ncpu)
     if batch_size > 1:
@@ -1252,27 +1273,28 @@ def inference_transducer(
         nbest: int,
         num_workers: int,
         log_level: Union[int, str],
-        data_path_and_name_and_type: Sequence[Tuple[str, str, str]],
+        # data_path_and_name_and_type: Sequence[Tuple[str, str, str]],
         asr_train_config: Optional[str],
         asr_model_file: Optional[str],
-        cmvn_file: Optional[str],
-        beam_search_config: Optional[dict],
-        lm_train_config: Optional[str],
-        lm_file: Optional[str],
-        model_tag: Optional[str],
-        token_type: Optional[str],
-        bpemodel: Optional[str],
-        key_file: Optional[str],
-        allow_variable_data_keys: bool,
-        quantize_asr_model: Optional[bool],
-        quantize_modules: Optional[List[str]],
-        quantize_dtype: Optional[str],
-        streaming: Optional[bool],
-        simu_streaming: Optional[bool],
-        chunk_size: Optional[int],
-        left_context: Optional[int],
-        right_context: Optional[int],
-        display_partial_hypotheses: bool,
+        cmvn_file: Optional[str] = None,
+        beam_search_config: Optional[dict] = None,
+        lm_train_config: Optional[str] = None,
+        lm_file: Optional[str] = None,
+        model_tag: Optional[str] = None,
+        token_type: Optional[str] = None,
+        bpemodel: Optional[str] = None,
+        key_file: Optional[str] = None,
+        allow_variable_data_keys: bool = False,
+        quantize_asr_model: Optional[bool] = False,
+        quantize_modules: Optional[List[str]] = None,
+        quantize_dtype: Optional[str] = "float16",
+        streaming: Optional[bool] = False,
+        simu_streaming: Optional[bool] = False,
+        full_utt: Optional[bool] = False,
+        chunk_size: Optional[int] = 16,
+        left_context: Optional[int] = 16,
+        right_context: Optional[int] = 0,
+        display_partial_hypotheses: bool = False,
         **kwargs,
 ) -> None:
     """Transducer model inference.
@@ -1307,7 +1329,6 @@ def inference_transducer(
         right_context: Number of frames in right context AFTER subsampling.
         display_partial_hypotheses: Whether to display partial hypotheses.
     """
-    assert check_argument_types()
 
     if batch_size > 1:
         raise NotImplementedError("batch decoding is not implemented")
@@ -1319,7 +1340,7 @@ def inference_transducer(
         format="%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s",
     )
 
-    if ngpu >= 1:
+    if ngpu >= 1 and torch.cuda.is_available():
         device = "cuda"
     else:
         device = "cpu"
@@ -1346,14 +1367,12 @@ def inference_transducer(
         quantize_dtype=quantize_dtype,
         streaming=streaming,
         simu_streaming=simu_streaming,
+        full_utt=full_utt,
         chunk_size=chunk_size,
         left_context=left_context,
         right_context=right_context,
     )
-    speech2text = Speech2TextTransducer.from_pretrained(
-        model_tag=model_tag,
-        **speech2text_kwargs,
-    )
+    speech2text = Speech2TextTransducer(**speech2text_kwargs)
 
     def _forward(data_path_and_name_and_type,
                  raw_inputs: Union[np.ndarray, torch.Tensor] = None,
@@ -1372,47 +1391,57 @@ def inference_transducer(
             key_file=key_file,
             num_workers=num_workers,
         )
+        asr_result_list = []
+
+        if output_dir is not None:
+            writer = DatadirWriter(output_dir)
+        else:
+            writer = None
 
         # 4 .Start for-loop
-        with DatadirWriter(output_dir) as writer:
-            for keys, batch in loader:
-                assert isinstance(batch, dict), type(batch)
-                assert all(isinstance(s, str) for s in keys), keys
+        for keys, batch in loader:
+            assert isinstance(batch, dict), type(batch)
+            assert all(isinstance(s, str) for s in keys), keys
 
-                _bs = len(next(iter(batch.values())))
-                assert len(keys) == _bs, f"{len(keys)} != {_bs}"
-                batch = {k: v[0] for k, v in batch.items() if not k.endswith("_lengths")}
-                assert len(batch.keys()) == 1
+            _bs = len(next(iter(batch.values())))
+            assert len(keys) == _bs, f"{len(keys)} != {_bs}"
+            batch = {k: v[0] for k, v in batch.items() if not k.endswith("_lengths")}
+            assert len(batch.keys()) == 1
 
-                try:
-                    if speech2text.streaming:
-                        speech = batch["speech"]
+            try:
+                if speech2text.streaming:
+                    speech = batch["speech"]
 
-                        _steps = len(speech) // speech2text._ctx
-                        _end = 0
-                        for i in range(_steps):
-                            _end = (i + 1) * speech2text._ctx
+                    _steps = len(speech) // speech2text._ctx
+                    _end = 0
+                    for i in range(_steps):
+                        _end = (i + 1) * speech2text._ctx
 
-                            speech2text.streaming_decode(
-                                speech[i * speech2text._ctx: _end], is_final=False
-                            )
-
-                        final_hyps = speech2text.streaming_decode(
-                            speech[_end: len(speech)], is_final=True
+                        speech2text.streaming_decode(
+                            speech[i * speech2text._ctx: _end + speech2text._right_ctx], is_final=False
                         )
-                    elif speech2text.simu_streaming:
-                        final_hyps = speech2text.simu_streaming_decode(**batch)
-                    else:
-                        final_hyps = speech2text(**batch)
 
-                    results = speech2text.hypotheses_to_results(final_hyps)
-                except TooShortUttError as e:
-                    logging.warning(f"Utterance {keys} {e}")
-                    hyp = Hypothesis(score=0.0, yseq=[], dec_state=None)
-                    results = [[" ", ["<space>"], [2], hyp]] * nbest
+                    final_hyps = speech2text.streaming_decode(
+                        speech[_end: len(speech)], is_final=True
+                    )
+                elif speech2text.simu_streaming:
+                    final_hyps = speech2text.simu_streaming_decode(**batch)
+                elif speech2text.full_utt:
+                    final_hyps = speech2text.full_utt_decode(**batch)
+                else:
+                    final_hyps = speech2text(**batch)
 
-                key = keys[0]
-                for n, (text, token, token_int, hyp) in zip(range(1, nbest + 1), results):
+                results = speech2text.hypotheses_to_results(final_hyps)
+            except TooShortUttError as e:
+                logging.warning(f"Utterance {keys} {e}")
+                hyp = Hypothesis(score=0.0, yseq=[], dec_state=None)
+                results = [[" ", ["<space>"], [2], hyp]] * nbest
+
+            key = keys[0]
+            for n, (text, token, token_int, hyp) in zip(range(1, nbest + 1), results):
+                item = {'key': key, 'value': text}
+                asr_result_list.append(item)
+                if writer is not None:
                     ibest_writer = writer[f"{n}best_recog"]
 
                     ibest_writer["token"][key] = " ".join(token)
@@ -1422,6 +1451,8 @@ def inference_transducer(
                     if text is not None:
                         ibest_writer["text"][key] = text
 
+                logging.info("decoding, utt: {}, predictions: {}".format(key, text))
+        return asr_result_list
     return _forward
 
 
@@ -1457,7 +1488,6 @@ def inference_sa_asr(
         param_dict: dict = None,
         **kwargs,
 ):
-    assert check_argument_types()
     if batch_size > 1:
         raise NotImplementedError("batch decoding is not implemented")
     if word_lm_train_config is not None:
@@ -1605,6 +1635,8 @@ def inference_launch(**kwargs):
     elif mode == "mfcca":
         return inference_mfcca(**kwargs)
     elif mode == "rnnt":
+        return inference_transducer(**kwargs)
+    elif mode == "bat":
         return inference_transducer(**kwargs)
     elif mode == "sa_asr":
         return inference_sa_asr(**kwargs)
@@ -1784,6 +1816,7 @@ def get_parser():
     group.add_argument("--ngram_weight", type=float, default=0.9, help="ngram weight")
     group.add_argument("--streaming", type=str2bool, default=False)
     group.add_argument("--simu_streaming", type=str2bool, default=False)
+    group.add_argument("--full_utt", type=str2bool, default=False)
     group.add_argument("--chunk_size", type=int, default=16)
     group.add_argument("--left_context", type=int, default=16)
     group.add_argument("--right_context", type=int, default=0)
