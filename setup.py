@@ -10,44 +10,41 @@ from setuptools import setup
 
 requirements = {
     "install": [
-        "setuptools>=38.5.1",
-        "humanfriendly",
         "scipy>=1.4.1",
         "librosa",
         "jamo",  # For kss
         "PyYAML>=5.1.2",
         "soundfile>=0.12.1",
-        "h5py>=3.1.0",
         "kaldiio>=2.17.0",
-        "kaldi-io==0.9.8",
         "torch_complex",
-        "nltk>=3.4.5",
-        "onnxruntime",
-        "numexpr",
-        # ASR
-        "sentencepiece",
+        # "nltk>=3.4.5",
+        "sentencepiece",  # train
         "jieba",
         "rotary_embedding_torch",
-        # TTS
-        "pypinyin>=0.44.0",
-        "espnet_tts_frontend",
+        # "ffmpeg-python",
+        # "pypinyin>=0.44.0",
+        # "espnet_tts_frontend",
         # ENH
         "pytorch_wpe",
         "editdistance>=0.5.2",
-        "tensorboard",
-        "g2p",
-        "nara_wpe",
-        "Cython",
+        # "g2p",
+        # "nara_wpe",
         # PAI
         "oss2",
-        "edit-distance",
-        "textgrid",
-        "protobuf",
+        # "edit-distance",
+        # "textgrid",
+        # "protobuf",
+        "tqdm",
+        "umap_learn",
+        "jaconv",
+        "hydra-core>=1.3.2",
+        "tensorboardX",
+        "rotary_embedding_torch",
+        "openai-whisper",
     ],
     # train: The modules invoked when training only.
     "train": [
         "editdistance",
-        "wandb",
     ],
     # all: The modules should be optionally installled due to some reason.
     #      Please consider moving them to "install" occasionally
@@ -56,6 +53,7 @@ requirements = {
         "torch_optimizer",
         "fairscale",
         "transformers",
+        "openai-whisper",
     ],
     "setup": [
         "numpy",
@@ -83,18 +81,28 @@ requirements = {
         "recommonmark>=0.4.0",
         "nbsphinx>=0.4.2",
         "sphinx-markdown-tables>=0.0.12",
-        "configargparse>=1.2.1"
+        "configargparse>=1.2.1",
+    ],
+    "llm": [
+        "transformers>=4.32.0",
+        "accelerate",
+        "tiktoken",
+        "einops",
+        "transformers_stream_generator>=0.0.4",
+        "scipy",
+        "torchvision",
+        "pillow",
+        "matplotlib",
     ],
 }
 requirements["all"].extend(requirements["train"])
+requirements["all"].extend(requirements["llm"])
 requirements["test"].extend(requirements["train"])
 
 install_requires = requirements["install"]
 setup_requires = requirements["setup"]
 tests_require = requirements["test"]
-extras_require = {
-    k: v for k, v in requirements.items() if k not in ["install", "setup"]
-}
+extras_require = {k: v for k, v in requirements.items() if k not in ["install", "setup"]}
 
 dirname = os.path.dirname(__file__)
 version_file = os.path.join(dirname, "funasr", "version.txt")
@@ -104,7 +112,7 @@ setup(
     name="funasr",
     version=version,
     url="https://github.com/alibaba-damo-academy/FunASR.git",
-    author="Speech Lab of DAMO Academy, Alibaba Group",
+    author="Speech Lab of Alibaba Group",
     author_email="funasr@list.alibaba-inc.com",
     description="FunASR: A Fundamental End-to-End Speech Recognition Toolkit",
     long_description=open(os.path.join(dirname, "README.md"), encoding="utf-8").read(),
@@ -129,4 +137,15 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Topic :: Software Development :: Libraries :: Python Modules",
     ],
+    entry_points={
+        "console_scripts": [
+            "funasr = funasr.bin.inference:main_hydra",
+            "funasr-train = funasr.bin.train:main_hydra",
+            "funasr-export = funasr.bin.export:main_hydra",
+            "scp2jsonl = funasr.datasets.audio_datasets.scp2jsonl:main_hydra",
+            "jsonl2scp = funasr.datasets.audio_datasets.jsonl2scp:main_hydra",
+            "funasr-scp2jsonl = funasr.datasets.audio_datasets.scp2jsonl:main_hydra",
+            "funasr-jsonl2scp = funasr.datasets.audio_datasets.jsonl2scp:main_hydra",
+        ]
+    },
 )
