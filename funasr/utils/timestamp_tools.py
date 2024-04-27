@@ -105,15 +105,26 @@ def ts_prediction_lfr6_standard(
 
 
 def timestamp_sentence(
-    punc_id_list, timestamp_postprocessed, text_postprocessed, return_raw_text=False
+    punc_lang, punc_id_list, timestamp_postprocessed, text_postprocessed, return_raw_text=False
 ):
-    punc_list = ["，", "。", "？", "、"]
+    if punc_lang == "zh":
+        punc_dict = {
+            2: "，",
+            3: "。",
+            4: "？",
+        }
+    else:
+        punc_dict = {
+            2: ",",
+            3: ".",
+            4: "?",
+        }
+    def id_to_punc(punc_id):
+        if punc_id in punc_dict:
+            return punc_dict[punc_id]
+        return f"<{punc_id}>"
+
     res = []
-    print("in timestamp_sentence")
-    print("punc_id_list " + str(punc_id_list))
-    print("timestamp_postprocessed " + str(timestamp_postprocessed))
-    print("text_postprocessed " + str(text_postprocessed))
-    print("return_raw_text " + str(return_raw_text))
     if text_postprocessed is None:
         return res
     if timestamp_postprocessed is None:
@@ -161,8 +172,8 @@ def timestamp_sentence(
             sentence_text_seg += text + " "
         ts_list.append(timestamp)
 
-        if punc_id== 2:
-            sentence_text += '，'
+        if punc_id == 2:
+            sentence_text += id_to_punc(punc_id)
             res.append({
                 'text': sentence_text,
                 "start": sentence_start,
@@ -171,7 +182,7 @@ def timestamp_sentence(
             sentence_text = ''
             sentence_start = sentence_end
         elif punc_id == 3:
-            sentence_text += '。'
+            sentence_text += id_to_punc(punc_id)
             res.append({
                 'text': sentence_text,
                 "start": sentence_start,
@@ -180,7 +191,7 @@ def timestamp_sentence(
             sentence_text = ''
             sentence_start = sentence_end
         elif punc_id == 4:
-            sentence_text += '？'
+            sentence_text += id_to_punc(punc_id)
             res.append({
                 'text': sentence_text,
                 "start": sentence_start,

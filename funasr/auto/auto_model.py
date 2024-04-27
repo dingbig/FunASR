@@ -505,6 +505,7 @@ class AutoModel:
                                        can predict timestamp, and speaker diarization relies on timestamps."
                         )
                     sentence_list = timestamp_sentence(
+                        kwargs.get("punc_lang", "zh"),
                         punc_res[0]["punc_array"],
                         result["timestamp"],
                         raw_text,
@@ -517,6 +518,7 @@ class AutoModel:
                     sentence_list = []
                 else:
                     sentence_list = timestamp_sentence(
+                        kwargs.get("punc_lang", "zh"),
                         punc_res[0]["punc_array"],
                         result["timestamp"],
                         raw_text,
