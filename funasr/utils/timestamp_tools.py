@@ -109,6 +109,11 @@ def timestamp_sentence(
 ):
     punc_list = ["，", "。", "？", "、"]
     res = []
+    print("in timestamp_sentence")
+    print("punc_id_list " + str(punc_id_list))
+    print("timestamp_postprocessed " + str(timestamp_postprocessed))
+    print("text_postprocessed " + str(text_postprocessed))
+    print("return_raw_text " + str(return_raw_text))
     if text_postprocessed is None:
         return res
     if timestamp_postprocessed is None:
@@ -139,9 +144,11 @@ def timestamp_sentence(
     punc_stamp_text_list = list(
         zip_longest(punc_id_list, timestamp_postprocessed, texts, fillvalue=None)
     )
+    print("punc_stamp_text_list is " + str(punc_stamp_text_list))
     for punc_stamp_text in punc_stamp_text_list:
         punc_id, timestamp, text = punc_stamp_text
-        # sentence_text += text if text is not None else ''
+        punc_id = int(punc_id) if punc_id is not None else 1
+        sentence_end = timestamp[1] if timestamp is not None else sentence_end
         if text is not None:
             if "a" <= text[0] <= "z" or "A" <= text[0] <= "Z":
                 sentence_text += " " + text
@@ -154,7 +161,7 @@ def timestamp_sentence(
             sentence_text_seg += text + " "
         ts_list.append(timestamp)
 
-        if punc_id == 2:
+        if punc_id== 2:
             sentence_text += '，'
             res.append({
                 'text': sentence_text,
