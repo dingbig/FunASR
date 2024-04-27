@@ -154,34 +154,31 @@ def timestamp_sentence(
             sentence_text_seg += text + " "
         ts_list.append(timestamp)
 
-        punc_id = int(punc_id) if punc_id is not None else 1
-        sentence_end = timestamp[1] if timestamp is not None else sentence_end
-        sentence_text_seg = (
-            sentence_text_seg[:-1] if sentence_text_seg[-1] == " " else sentence_text_seg
-        )
-        if punc_id > 1:
-            sentence_text += punc_list[punc_id - 2]
-            if return_raw_text:
-                res.append(
-                    {
-                        "text": sentence_text,
-                        "start": sentence_start,
-                        "end": sentence_end,
-                        "timestamp": ts_list,
-                        "raw_text": sentence_text_seg,
-                    }
-                )
-            else:
-                res.append(
-                    {
-                        "text": sentence_text,
-                        "start": sentence_start,
-                        "end": sentence_end,
-                        "timestamp": ts_list,
-                    }
-                )
-            sentence_text = ""
-            sentence_text_seg = ""
-            ts_list = []
+        if punc_id == 2:
+            sentence_text += '，'
+            res.append({
+                'text': sentence_text,
+                "start": sentence_start,
+                "end": sentence_end
+            })
+            sentence_text = ''
+            sentence_start = sentence_end
+        elif punc_id == 3:
+            sentence_text += '。'
+            res.append({
+                'text': sentence_text,
+                "start": sentence_start,
+                "end": sentence_end
+            })
+            sentence_text = ''
+            sentence_start = sentence_end
+        elif punc_id == 4:
+            sentence_text += '？'
+            res.append({
+                'text': sentence_text,
+                "start": sentence_start,
+                "end": sentence_end
+            })
+            sentence_text = ''
             sentence_start = sentence_end
     return res
