@@ -175,7 +175,7 @@ def timestamp_sentence(
         if punc_id == 2:
             sentence_text += id_to_punc(punc_id)
             res.append({
-                'text': sentence_text,
+                'text': sentence_text.strip(),
                 "start": sentence_start,
                 "end": sentence_end
             })
@@ -184,7 +184,7 @@ def timestamp_sentence(
         elif punc_id == 3:
             sentence_text += id_to_punc(punc_id)
             res.append({
-                'text': sentence_text,
+                'text': sentence_text.strip(),
                 "start": sentence_start,
                 "end": sentence_end
             })
@@ -193,7 +193,7 @@ def timestamp_sentence(
         elif punc_id == 4:
             sentence_text += id_to_punc(punc_id)
             res.append({
-                'text': sentence_text,
+                'text': sentence_text.strip(),
                 "start": sentence_start,
                 "end": sentence_end
             })
